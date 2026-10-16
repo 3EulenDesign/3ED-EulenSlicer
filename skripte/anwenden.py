@@ -74,7 +74,7 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
     (
         "src/slic3r/GUI/GUI_App.cpp",
         '#include "MainFrame.hpp"\n',
-        '#include "MainFrame.hpp"\n#include "EulenUpdater.hpp"\n',
+        '#include "MainFrame.hpp"\n#include "EulenUpdater.hpp"\n#include "EulenPortal.hpp"\n',
         1,
     ),
     (
@@ -84,6 +84,8 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "    // EulenSlicer: Updates kommen aus dem 3 Eulen Portal (signierte MSI), nicht von GitHub.\n"
         "    (void) show_tips;\n"
         "    eulen_update_pruefen(by_user != 0);\n"
+        "    if (by_user == 0)\n"
+        "        eulen_beim_start(); // Profile aus dem Portal abgleichen\n"
         "    return;\n",
         1,
     ),
@@ -104,12 +106,135 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         'wxGetApp().mainframe->SetTitle(m_project_name + " - EulenSlicer");',
         1,
     ),
+    # Reiter „Start“: Seite aus dem Portal, Befehle der Seiten (eulen_*), Rückfall auf die normale Startseite.
+    (
+        "src/slic3r/GUI/WebViewDialog.cpp",
+        '#include "slic3r/GUI/MainFrame.hpp"\n',
+        '#include "slic3r/GUI/MainFrame.hpp"\n#include "slic3r/GUI/EulenPortal.hpp"\n',
+        1,
+    ),
+    (
+        "src/slic3r/GUI/WebViewDialog.cpp",
+        "    topsizer->Add(m_browser, wxSizerFlags().Expand().Proportion(1));\n",
+        "    topsizer->Add(m_browser, wxSizerFlags().Expand().Proportion(1));\n"
+        "    // EulenSlicer: Startseite aus dem 3 Eulen Portal, sobald sie erreichbar ist.\n"
+        "    eulen_start_einrichten(m_browser, url);\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/WebViewDialog.cpp",
+        "    const wxString &url = evt.GetURL();\n",
+        "    const wxString &url = evt.GetURL();\n"
+        "    // EulenSlicer: Von der Portal-Seite aus nur Seiten des Portals, Links im Browser.\n"
+        "    if (eulen_start_navigation(m_browser, evt))\n"
+        "        return;\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/WebViewDialog.cpp",
+        "void WebViewPanel::OnError(wxWebViewEvent& evt)\n{\n",
+        "void WebViewPanel::OnError(wxWebViewEvent& evt)\n{\n"
+        "    // EulenSlicer: Portal nicht erreichbar -> normale Startseite.\n"
+        "    if (eulen_start_fehler(m_browser, evt))\n"
+        "        return;\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/WebViewDialog.cpp",
+        "void WebViewPanel::OnScriptMessage(wxWebViewEvent& evt)\n{\n"
+        "    BOOST_LOG_TRIVIAL(trace) << __FUNCTION__ << \": \" << evt.GetString().ToUTF8().data();\n",
+        "void WebViewPanel::OnScriptMessage(wxWebViewEvent& evt)\n{\n"
+        "    BOOST_LOG_TRIVIAL(trace) << __FUNCTION__ << \": \" << evt.GetString().ToUTF8().data();\n"
+        "    // EulenSlicer: Befehle der Portal-Seite (eulen_*).\n"
+        "    if (eulen_web_nachricht(m_browser, evt.GetString(), nullptr))\n"
+        "        return;\n",
+        1,
+    ),
+    # Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud), Eintrag im Dateimenü und neben „Drucken“.
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        '#include "MainFrame.hpp"\n',
+        '#include "MainFrame.hpp"\n#include "EulenPortal.hpp"\n',
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        "    append_menu_item(\n"
+        "        m_topbar->GetTopMenu(), wxID_ANY, _L(\"Sync Presets\"), _L(\"Pull and apply the latest presets from OrcaCloud\"),\n"
+        "        [this](wxCommandEvent&) {\n"
+        "            if (!wxGetApp().is_user_login()) {\n"
+        "                MessageDialog info_dlg(this, _L(\"You must be logged in to sync presets from cloud.\"),\n"
+        "                    _L(\"Sync Presets\"), wxOK | wxICON_INFORMATION);\n"
+        "                info_dlg.ShowModal();\n"
+        "                return;\n"
+        "            }\n"
+        "            if (m_plater)\n"
+        "                m_plater->get_notification_manager()->push_notification(\n"
+        "                    into_u8(_L(\"Syncing presets from cloud\\u2026\")));\n"
+        "            wxGetApp().restart_sync_user_preset();\n"
+        "        }, \"\", nullptr,\n"
+        "        [this]() {\n"
+        "            return wxGetApp().is_user_login() && !wxGetApp().app_config->get_stealth_mode();\n"
+        "        }, this);\n",
+        "    // EulenSlicer: Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud).\n"
+        "    m_topbar->AddDropDownSubMenu(eulen_menue(this), wxString::FromUTF8(\"3 Eulen\"));\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        "        append_menu_item(fileMenu, wxID_ANY, _L(\"Sync Presets\"), _L(\"Pull and apply the latest presets from OrcaCloud\"),\n"
+        "            [this](wxCommandEvent&) {\n"
+        "                if (!wxGetApp().is_user_login()) {\n"
+        "                    MessageDialog info_dlg(this, _L(\"You must be logged in to sync presets from cloud.\"),\n"
+        "                        _L(\"Sync Presets\"), wxOK | wxICON_INFORMATION);\n"
+        "                    info_dlg.ShowModal();\n"
+        "                    return;\n"
+        "                }\n"
+        "                wxGetApp().restart_sync_user_preset();\n"
+        "            }, \"\", nullptr,\n"
+        "            [this]() {\n"
+        "                return wxGetApp().is_user_login() && !wxGetApp().app_config->get_stealth_mode();\n"
+        "            }, this);\n",
+        "        // EulenSlicer: „An 3 Eulen senden“ statt „Sync Presets“ (OrcaCloud).\n"
+        "        append_menu_item(fileMenu, wxID_ANY, wxString::FromUTF8(\"An 3 Eulen senden\"),\n"
+        "            wxString::FromUTF8(\"Projekt als Druckauftrag ins 3 Eulen Portal schicken\"),\n"
+        "            [](wxCommandEvent&) { eulen_senden(); }, \"\", nullptr,\n"
+        "            []() { return eulen_portal_aktiv(); }, this);\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        "            p->Popup(m_print_btn);\n",
+        "            // EulenSlicer: Projekt ans 3 Eulen Portal schicken.\n"
+        "            if (eulen_portal_aktiv()) {\n"
+        "                SideButton* eulen_btn = new SideButton(p, wxString::FromUTF8(\"An 3 Eulen senden\"), \"\");\n"
+        "                eulen_btn->SetCornerRadius(0);\n"
+        "                eulen_btn->Bind(wxEVT_BUTTON, [p](wxCommandEvent&) {\n"
+        "                    p->Dismiss();\n"
+        "                    wxGetApp().CallAfter([] { eulen_senden(); });\n"
+        "                });\n"
+        "                p->append_button(eulen_btn);\n"
+        "            }\n"
+        "            p->Popup(m_print_btn);\n",
+        1,
+    ),
+    # Login-Spalte von OrcaCloud auf der normalen Startseite ausblenden (Anmelden geht übers Portal).
+    (
+        "src/libslic3r/AppConfig.cpp",
+        "    if (get(\"hide_login_side_panel\").empty()) {\n        set_bool(\"hide_login_side_panel\", false);\n",
+        "    if (get(\"hide_login_side_panel\").empty()) {\n        set_bool(\"hide_login_side_panel\", true); // EulenSlicer\n",
+        1,
+    ),
     # Neue Quelldateien bauen
     (
         "src/slic3r/CMakeLists.txt",
         "    GUI/UpdateDialogs.cpp\n",
         "    GUI/UpdateDialogs.cpp\n"
         "    GUI/EulenKonfig.hpp\n"
+        "    GUI/EulenPortal.cpp\n"
+        "    GUI/EulenPortal.hpp\n"
+        "    GUI/EulenPortalKern.cpp\n"
+        "    GUI/EulenPortalKern.hpp\n"
         "    GUI/EulenUpdater.cpp\n"
         "    GUI/EulenUpdater.hpp\n"
         "    GUI/EulenUpdaterKern.cpp\n"
@@ -154,6 +279,12 @@ def update_url(api: str) -> str:
     if not api.startswith("https://") and not re.match(r"^http://(localhost|127\.0\.0\.1)[:/]", api):
         fehler("PORTAL_API muss mit https:// beginnen.")
     return api + "slicer/update"
+
+
+def portal_api(api: str) -> str:
+    """REST-Adresse des Portals mit „/“ am Ende (leer, wenn keine eingetragen ist)."""
+    url = update_url(api)
+    return url[: -len("slicer/update")] if url else ""
 
 
 def c_text(s: str) -> str:
@@ -234,6 +365,7 @@ def main() -> None:
         f"#define EULEN_ORCA_VERSION {c_text(version)}\n"
         f"#define EULEN_BUILD {args.build}\n"
         f"#define EULEN_UPDATE_URL {c_text(url)}\n"
+        f"#define EULEN_PORTAL_API {c_text(portal_api(args.portal_api))}\n"
         f"#define EULEN_UPDATE_PUBKEY {c_text(key)}\n",
         encoding="utf-8",
         newline="\n",
