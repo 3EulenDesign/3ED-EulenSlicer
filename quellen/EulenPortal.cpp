@@ -10,6 +10,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
+#include <map>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -197,7 +199,8 @@ Antwort anfrage(const std::string& methode, const std::string& url, const Kopf& 
 {
     Antwort a;
     Http    http = methode == "GET" ? Http::get(url) : (methode == "DELETE" ? Http::del(url) : Http::post(url));
-    http.tls_verify(url.rfind("https://", 0) == 0).timeout_connect(verbinden).timeout_max(max_sekunden);
+    // Keine Weiterleitungen: curl schickte X-Api-Key sonst auch an das neue Ziel.
+    http.tls_verify(url.rfind("https://", 0) == 0).follow_redirects(false).timeout_connect(verbinden).timeout_max(max_sekunden);
     for (const auto& [name, wert] : kopf)
         http.header(name, wert);
     http.header("Accept", "application/json");
@@ -256,6 +259,27 @@ void skript(wxWebView* browser, const std::string& js)
         if (ref)
             WebView::RunScript(ref.get(), utf8(js));
     });
+}
+
+// Browser, die auf eine Antwort aus einem Hintergrundfaden warten. Nur im Hauptfaden
+// benutzen: wxWeakRef ist nicht threadsicher, darum gehen Fäden nur mit der Nummer um.
+std::map<int, wxWeakRef<wxWebView>> g_wartend;
+int                                 g_wartend_nr = 0;
+
+int wartend_merken(wxWebView* browser)
+{
+    g_wartend[++g_wartend_nr] = browser;
+    return g_wartend_nr;
+}
+
+wxWebView* wartend_holen(int nr)
+{
+    const auto it = g_wartend.find(nr);
+    if (it == g_wartend.end())
+        return nullptr;
+    wxWebView* browser = it->second.get();
+    g_wartend.erase(it);
+    return browser;
 }
 
 void antworten(wxWebView* browser, const json& anfrage_json, const json& daten, const std::string& fehler = std::string())
@@ -331,7 +355,7 @@ public:
     {
         m_auftrag = auftrag;
         if (m_browser != nullptr)
-            m_browser->LoadURL(utf8(url));
+            WebView::LoadUrl(m_browser, utf8(url));
     }
 
     int auftrag() const { return m_auftrag; }
@@ -403,6 +427,7 @@ std::optional<Ablage> hochladen(const fs::path& datei, const std::string& name, 
     const std::string basis = kern::api_basis(api());
     const Kopf        kopf  = zugang_kopf();
     std::thread arbeiter([lauf, basis, kopf, datei, name, groesse]() {
+      try {
         auto ende = [&lauf](const std::string& f) {
             {
                 std::lock_guard<std::mutex> g(lauf->sperre);
@@ -455,6 +480,10 @@ std::optional<Ablage> hochladen(const fs::path& datei, const std::string& name, 
             lauf->prozent = static_cast<int>(gesendet * 95 / groesse);
         }
         Antwort f = anfrage("POST", basis + "ablage/" + id + "/fertig", mit, "{}", "application/json", 300);
+        if (lauf->abbrechen) {
+            anfrage("DELETE", basis + "ablage/" + id, mit);
+            return ende(std::string());
+        }
         if (!f.ok())
             return ende(fehler_von(f));
         {
@@ -463,6 +492,13 @@ std::optional<Ablage> hochladen(const fs::path& datei, const std::string& name, 
         }
         lauf->prozent = 100;
         lauf->fertig  = true;
+      } catch (const std::exception& ex) {
+        {
+            std::lock_guard<std::mutex> g(lauf->sperre);
+            lauf->fehler = std::string("Fehler beim Senden: ") + ex.what();
+        }
+        lauf->fertig = true;
+      }
     });
 
     {
@@ -526,7 +562,9 @@ bool datei_schreiben(const fs::path& p, const std::string& inhalt)
     return true;
 }
 
-void presets_neu_laden(const std::string& user)
+// Neue Profile gleich laden; geänderte und entfernte wirken erst nach dem Neustart
+// (OrcaSlicer lädt ein schon geladenes Profil nicht noch einmal).
+void presets_neu_laden(const std::string& user, bool neustart_noetig)
 {
     PresetBundle* pb = wxGetApp().preset_bundle;
     if (pb == nullptr || wxGetApp().mainframe == nullptr)
@@ -535,8 +573,14 @@ void presets_neu_laden(const std::string& user)
         hinweis("Neue Profile aus dem Portal sind da – sie erscheinen nach dem nächsten Start (gerade sind Änderungen an Profilen offen).");
         return;
     }
-    pb->load_user_presets(user, ForwardCompatibilitySubstitutionRule::Enable);
-    wxGetApp().mainframe->update_side_preset_ui();
+    try {
+        pb->load_user_presets(user, ForwardCompatibilitySubstitutionRule::Enable);
+        wxGetApp().mainframe->update_side_preset_ui();
+    } catch (const std::exception& ex) {
+        BOOST_LOG_TRIVIAL(error) << "EulenSlicer: Profile neu laden: " << ex.what();
+    }
+    if (neustart_noetig)
+        hinweis("Profile aus dem Portal wurden geändert – sie gelten nach dem nächsten Start des EulenSlicers.");
 }
 
 // Abgleich im Hintergrund; fertig läuft danach im Hauptfaden.
@@ -563,54 +607,79 @@ void profile_abgleichen(std::function<void(const ProfilErgebnis&)> fertig)
 
     std::thread([fertig, user, ordner, kopf, basis]() {
         ProfilErgebnis e;
-        Antwort        a = anfrage("GET", basis + "profile", kopf);
-        if (!a.ok()) {
-            e.fehler = fehler_von(a);
-        } else {
-            const auto     portal     = kern::profile_lesen(a.body);
-            const fs::path verz_datei = ordner / "eulen_profile.json";
-            auto           verz       = kern::verzeichnis_lesen(datei_lesen(verz_datei));
-            const auto     plan       = kern::profil_plan(portal, verz, [&ordner](const std::string& rel) {
-                boost::system::error_code ec;
-                return fs::exists(ordner / pfad(rel), ec);
-            });
-            for (const auto& p : plan.laden) {
-                Antwort d    = anfrage("GET", basis + "profile/" + p.id, kopf);
-                json    inh  = d.ok() ? json_lesen(d.body) : json();
-                if (!inh.is_object() || text_von(inh, "name").empty()) {
-                    BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Profil " << p.name << " nicht geladen: " << (d.ok() ? "kein Profil" : fehler_von(d));
-                    if (e.fehler.empty())
-                        e.fehler = "Ein Profil ließ sich nicht laden: " + p.name;
-                    continue;
+        try {
+            Antwort a = anfrage("GET", basis + "profile", kopf);
+            if (!a.ok()) {
+                e.fehler = fehler_von(a);
+            } else {
+                const auto     portal     = kern::profile_lesen(a.body);
+                const fs::path verz_datei = ordner / "eulen_profile.json";
+                auto           verz       = kern::verzeichnis_lesen(datei_lesen(verz_datei));
+                const auto     plan       = kern::profil_plan(portal, verz, [&ordner](const std::string& rel) {
+                    boost::system::error_code ec;
+                    const fs::path            p = ordner / pfad(rel);
+                    return fs::exists(p, ec) ? kern::inhalt_hash(datei_lesen(p)) : std::string();
+                });
+                std::set<std::string> im_portal;
+                for (const auto& p : portal)
+                    im_portal.insert(p.id);
+                // Im Slicer geänderte Profile gehören jetzt der Person.
+                for (const auto& v : plan.freigeben)
+                    verz.erase(v.id);
+                // Erst entfernen (alte Namen, gelöschte), dann laden – dieselbe Datei kann in beiden stehen.
+                for (const auto& v : plan.entfernen) {
+                    boost::system::error_code ec;
+                    fs::path                  alt = ordner / pfad(v.datei);
+                    fs::remove(alt, ec);
+                    alt.replace_extension(".info");
+                    fs::remove(alt, ec);
+                    const auto it = verz.find(v.id);
+                    if (it != verz.end() && it->second.datei == v.datei)
+                        verz.erase(it);
+                    if (!im_portal.count(v.id))
+                        ++e.entfernt;
                 }
-                if (!datei_schreiben(ordner / pfad(p.datei), inh.dump(1, '\t'))) {
-                    if (e.fehler.empty())
-                        e.fehler = "Ein Profil ließ sich nicht speichern: " + p.name;
-                    continue;
+                for (kern::Profil p : plan.laden) {
+                    Antwort d   = anfrage("GET", basis + "profile/" + p.id, kopf);
+                    json    inh = d.ok() ? json_lesen(d.body) : json();
+                    if (!inh.is_object() || text_von(inh, "name").empty()) {
+                        BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Profil " << p.name << " nicht geladen: " << (d.ok() ? "kein Profil" : fehler_von(d));
+                        if (e.fehler.empty())
+                            e.fehler = "Ein Profil ließ sich nicht laden: " + p.name;
+                        continue;
+                    }
+                    // Nachbearbeitungs-Skripte liefen beim Exportieren auf jedem Rechner – nie aus dem Portal.
+                    const auto pp = inh.find("post_process");
+                    if (pp != inh.end() && !(pp->is_null() || (pp->is_string() && pp->get<std::string>().empty()) ||
+                                             (pp->is_array() && std::all_of(pp->begin(), pp->end(), [](const json& x) {
+                                                  return x.is_string() && x.get<std::string>().empty();
+                                              })))) {
+                        BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Profil " << p.name << " mit post_process abgelehnt.";
+                        if (e.fehler.empty())
+                            e.fehler = "Profil „" + p.name + "“ enthält Nachbearbeitungs-Skripte und wird nicht übernommen.";
+                        continue;
+                    }
+                    const std::string text = inh.dump(1, '\t');
+                    if (!datei_schreiben(ordner / pfad(p.datei), text)) {
+                        if (e.fehler.empty())
+                            e.fehler = "Ein Profil ließ sich nicht speichern: " + p.name;
+                        continue;
+                    }
+                    p.inhalt   = kern::inhalt_hash(text);
+                    verz[p.id] = p;
                 }
-                verz[p.id] = p;
+                e.neu       = plan.neu;
+                e.geaendert = plan.geaendert;
+                e.belegt    = static_cast<int>(plan.belegt.size());
+                datei_schreiben(verz_datei, kern::verzeichnis_schreiben(verz));
             }
-            for (const auto& v : plan.entfernen) {
-                boost::system::error_code ec;
-                fs::path                  alt = ordner / pfad(v.datei);
-                fs::remove(alt, ec);
-                alt.replace_extension(".info");
-                fs::remove(alt, ec);
-                const auto it = verz.find(v.id);
-                if (it != verz.end() && it->second.datei == v.datei) {
-                    verz.erase(it);
-                    ++e.entfernt;
-                }
-            }
-            e.neu       = plan.neu;
-            e.geaendert = plan.geaendert;
-            e.belegt    = static_cast<int>(plan.belegt.size());
-            datei_schreiben(verz_datei, kern::verzeichnis_schreiben(verz));
+        } catch (const std::exception& ex) {
+            e.fehler = std::string("Abgleich der Profile fehlgeschlagen: ") + ex.what();
         }
         wxGetApp().CallAfter([fertig, e, user]() {
             g_profile_laeuft = false;
-            if (e.neu + e.geaendert + e.entfernt > 0)
-                presets_neu_laden(user);
+            if (e.neu > 0 || e.geaendert + e.entfernt > 0)
+                presets_neu_laden(user, e.geaendert + e.entfernt > 0);
             fertig(e);
         });
     }).detach();
@@ -741,15 +810,16 @@ void befehl_ausfuehren(wxWebView* browser, wxWindow* fenster, const json& m, con
             wxGetApp().request_model_download(utf8(url + "&name=" + name));
         });
     } else if (befehl == "eulen_profile") {
-        wxWeakRef<wxWebView> ref(browser);
-        const json           anfrage_kopie = m;
-        profile_abgleichen([ref, anfrage_kopie](const ProfilErgebnis& e) {
-            if (!ref)
+        const int  nr            = wartend_merken(browser);
+        const json anfrage_kopie = m;
+        profile_abgleichen([nr, anfrage_kopie](const ProfilErgebnis& e) {
+            wxWebView* ziel = wartend_holen(nr);
+            if (ziel == nullptr)
                 return;
             if (!e.fehler.empty() && e.neu + e.geaendert + e.entfernt == 0)
-                antworten(ref.get(), anfrage_kopie, json::object(), e.fehler);
+                antworten(ziel, anfrage_kopie, json::object(), e.fehler);
             else
-                antworten(ref.get(), anfrage_kopie, json{{"neu", e.neu}, {"geaendert", e.geaendert}, {"entfernt", e.entfernt}, {"belegt", e.belegt}});
+                antworten(ziel, anfrage_kopie, json{{"neu", e.neu}, {"geaendert", e.geaendert}, {"entfernt", e.entfernt}, {"belegt", e.belegt}});
         });
     } else if (befehl == "eulen_update") {
         antworten(browser, m, json::object());
@@ -789,13 +859,18 @@ void eulen_start_einrichten(wxWebView* browser, const wxString& lokal)
     // Erst nachsehen, ob die Seite da ist (offline, Modul nicht aktiv) – dann umschalten.
     const std::string url = kern::seiten_url(api(), "start", seiten_param());
     std::thread([url]() {
-        const Antwort a   = anfrage("GET", url, Kopf{}, std::string(), std::string(), 15, 6);
-        const bool    gut = a.ok() && a.body.find("eulen-konfig") != std::string::npos;
+        Antwort a;
+        try {
+            a = anfrage("GET", url, Kopf{}, std::string(), std::string(), 15, 6);
+        } catch (...) {
+            a.fehler = "Ausnahme";
+        }
+        const bool gut = a.ok() && a.body.find("eulen-konfig") != std::string::npos;
         if (!gut)
             BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Startseite des Portals nicht erreichbar (" << fehler_von(a) << "), normale Startseite bleibt.";
         wxGetApp().CallAfter([url, gut]() {
             if (gut && g_start)
-                g_start->LoadURL(utf8(url));
+                WebView::LoadUrl(g_start.get(), utf8(url));
         });
     }).detach();
 }
@@ -825,7 +900,7 @@ bool eulen_start_fehler(wxWebView* browser, wxWebViewEvent& evt)
     if (evt.GetInt() == wxWEBVIEW_NAV_ERR_USER_CANCELLED)
         return true;
     BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Startseite des Portals ließ sich nicht laden, normale Startseite.";
-    browser->LoadURL(g_start_lokal);
+    WebView::LoadUrl(browser, g_start_lokal);
     return true;
 }
 
@@ -835,9 +910,21 @@ bool eulen_web_nachricht(wxWebView* browser, const wxString& nachricht, wxWindow
     if (!m.is_object())
         return false;
     const std::string befehl = text_von(m, "command");
-    if (befehl.rfind("eulen_", 0) != 0)
-        return false;
-    if (browser == nullptr || !kern::ist_portal_seite(api(), into_u8(browser->GetCurrentURL()))) {
+    const bool        portal = browser != nullptr && kern::ist_portal_seite(api(), into_u8(browser->GetCurrentURL()));
+    if (befehl.rfind("eulen_", 0) != 0) {
+        if (!portal)
+            return false; // normale Startseite: alles wie bei OrcaSlicer
+        // Von der Portal-Seite nur die Befehle der Startseite, die sie braucht – und ohne
+        // den Zeitgeber von OrcaSlicer, der Anmeldedaten von OrcaCloud in die Seite schickt.
+        static const std::set<std::string> erlaubt = {"get_recent_projects", "homepage_newproject", "homepage_openproject",
+                                                      "homepage_open_recentfile", "homepage_delete_all_recentfile"};
+        if (erlaubt.count(befehl) && fenster == nullptr)
+            wxGetApp().handle_web_request(into_u8(nachricht));
+        else
+            BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Befehl " << befehl << " von der Portal-Seite nicht erlaubt.";
+        return true;
+    }
+    if (!portal) {
         BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Befehl " << befehl << " von einer fremden Seite abgelehnt.";
         return true;
     }

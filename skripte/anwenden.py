@@ -226,6 +226,40 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "    if (get(\"hide_login_side_panel\").empty()) {\n        set_bool(\"hide_login_side_panel\", true); // EulenSlicer\n",
         1,
     ),
+    # Anfragen ans Portal ohne Weiterleitungen: curl schickte X-Api-Key sonst auch an
+    # das neue Ziel. Http folgt sonst fest eingestellt jeder Weiterleitung.
+    (
+        "src/slic3r/Utils/Http.hpp",
+        "\tHttp& tls_verify(bool enable);\n",
+        "\tHttp& tls_verify(bool enable);\n"
+        "\t// EulenSlicer: Weiterleitungen folgen (Standard) oder nicht.\n"
+        "\tHttp& follow_redirects(bool enable);\n",
+        1,
+    ),
+    (
+        "src/slic3r/Utils/Http.cpp",
+        "\tbool cancel;\n",
+        "\tbool cancel;\n\tbool follow_location = true; // EulenSlicer\n",
+        1,
+    ),
+    (
+        "src/slic3r/Utils/Http.cpp",
+        "\t::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);\n",
+        "\t::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, follow_location ? 1L : 0L);\n",
+        1,
+    ),
+    (
+        "src/slic3r/Utils/Http.cpp",
+        "Http& Http::tls_verify(bool enable)\n",
+        "Http& Http::follow_redirects(bool enable)\n"
+        "{\n"
+        "\tif (p) { p->follow_location = enable; }\n"
+        "\treturn *this;\n"
+        "}\n"
+        "\n"
+        "Http& Http::tls_verify(bool enable)\n",
+        1,
+    ),
     # Neue Quelldateien bauen
     (
         "src/slic3r/CMakeLists.txt",

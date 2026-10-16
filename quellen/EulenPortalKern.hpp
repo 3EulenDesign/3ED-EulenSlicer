@@ -7,6 +7,7 @@
 // Lizenz: AGPL-3.0 wie OrcaSlicer.
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <string>
@@ -56,8 +57,13 @@ struct Profil
     std::string art;  // machine, filament, process
     std::string name;
     std::string sha1; // 40 Zeichen hex
-    std::string datei; // nur im Verzeichnis: relativer Pfad, z. B. „filament/3 Eulen PLA.json“
+    std::string datei;  // nur im Verzeichnis: relativer Pfad, z. B. „filament/3 Eulen PLA.json“
+    std::string inhalt; // nur im Verzeichnis: inhalt_hash() der geschriebenen Datei
 };
+
+// Prüfsumme einer Datei (FNV-1a, 16 Zeichen hex) – erkennt, ob jemand ein Profil aus dem
+// Portal im Slicer geändert und gespeichert hat.
+std::string inhalt_hash(const std::string& inhalt);
 
 // Sicherer Dateiname (ohne Endung) für einen Profilnamen; leer, wenn keiner übrig bleibt.
 std::string profil_dateiname(const std::string& name);
@@ -72,16 +78,18 @@ std::string verzeichnis_schreiben(const std::map<std::string, Profil>& verzeichn
 struct ProfilPlan
 {
     std::vector<Profil> laden;     // neu oder geändert (datei gesetzt)
-    std::vector<Profil> entfernen; // nicht mehr im Portal oder umbenannt (alte datei)
+    std::vector<Profil> entfernen; // nicht mehr im Portal oder umbenannt (alte datei) – vor dem Laden löschen
     std::vector<Profil> belegt;    // gleichnamiges eigenes Profil – bleibt unangetastet
+    std::vector<Profil> freigeben; // im Slicer geändert: aus dem Verzeichnis nehmen, Datei bleibt
     int neu = 0;
     int geaendert = 0;
 };
 
-// Was ist zu tun? datei_da(relativer Pfad) sagt, ob eine Datei schon existiert.
+// Was ist zu tun? datei_hash(relativer Pfad) liefert inhalt_hash() der Datei oder leer,
+// wenn es sie nicht gibt. Erst entfernen, dann laden (dieselbe Datei kann in beiden stehen).
 ProfilPlan profil_plan(const std::vector<Profil>& portal,
                        const std::map<std::string, Profil>& verzeichnis,
-                       const std::function<bool(const std::string&)>& datei_da);
+                       const std::function<std::string(const std::string&)>& datei_hash);
 
 } // namespace Eulen
 } // namespace Slic3r

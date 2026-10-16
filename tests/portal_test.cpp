@@ -2,7 +2,9 @@
 //   g++ -std=c++17 -I quellen -I <orca>/deps_src tests/portal_test.cpp quellen/EulenPortalKern.cpp -o portal_test
 #include "EulenPortalKern.hpp"
 
+#include <cctype>
 #include <cstdio>
+#include <map>
 #include <set>
 #include <string>
 
@@ -50,6 +52,9 @@ int main()
     pruefe(!ist_portal_seite(api, "https://dev.3ed.app/wp-json/eulen/v1/slicer/seite/start x"), "Leerzeichen");
     pruefe(!ist_portal_seite(api, "file:///C:/Programme/EulenSlicer/resources/web/homepage/index.html"), "lokale Startseite");
     pruefe(!ist_portal_seite("", "https://dev.3ed.app/wp-json/eulen/v1/slicer/seite/start"), "ohne Portal");
+    pruefe(!ist_portal_seite(api, "https://dev.3ed.app/wp-json/eulen/v1/slicer/seite/start?rest_route=/eulen/v1/x"), "zweites rest_route");
+    pruefe(!ist_portal_seite(api2, "https://dev.3ed.app/?rest_route=/eulen/v1/slicer/seite/start&%72est_route=/x"), "kodiertes rest_route");
+    pruefe(ist_portal_seite(api, "https://dev.3ed.app/wp-json/eulen/v1/slicer/seite/auftraege?dunkel=1&auftrag=42"), "Seite mit Parametern");
     pruefe(ist_portal_adresse(api, "https://dev.3ed.app/wp-json/eulen/v1/druckauftraege/laden/1.2.abc/DA0001.3mf"), "Link zum Öffnen");
     pruefe(!ist_portal_adresse(api, "https://example.org/datei.3mf"), "fremder Link");
     pruefe(ist_http("HTTPS://x") && ist_http("http://x") && !ist_http("javascript:alert(1)") && !ist_http("file:///x"), "ist_http");
@@ -85,48 +90,99 @@ int main()
     pruefe(portal.size() == 3, "ungültige Einträge fallen weg");
     pruefe(profile_lesen("{kaputt").empty() && profile_lesen("{\"a\":1}").empty(), "kaputte Liste");
 
-    // Erster Abgleich: alles neu, „Eigener Drucker“ gibt es schon als eigenes Profil.
-    std::set<std::string> da = {"machine/Eigener Drucker.json"};
-    auto datei_da = [&](const std::string& d) { return da.count(d) > 0; };
+    // Lokale Dateien: Pfad → Inhalt (Prüfsumme über inhalt_hash)
+    std::map<std::string, std::string> dateien = {{"machine/Eigener Drucker.json", "{\"eigen\":1}"}};
+    auto klein = [](std::string t) { for (auto& c : t) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return t; };
+    auto datei_hash = [&](const std::string& d) {
+        for (const auto& [pfad, inhalt] : dateien)
+            if (klein(pfad) == klein(d)) // Windows: Groß/klein egal
+                return inhalt_hash(inhalt);
+        return std::string();
+    };
+    // So führt der Slicer einen Plan aus: erst entfernen, dann laden.
     std::map<std::string, Profil> verz;
-    auto plan = profil_plan(portal, verz, datei_da);
+    auto ausfuehren = [&](const ProfilPlan& plan) {
+        for (const auto& v : plan.freigeben)
+            verz.erase(v.id);
+        for (const auto& v : plan.entfernen) {
+            for (auto it = dateien.begin(); it != dateien.end(); ++it)
+                if (klein(it->first) == klein(v.datei)) {
+                    dateien.erase(it);
+                    break;
+                }
+            auto it = verz.find(v.id);
+            if (it != verz.end() && it->second.datei == v.datei)
+                verz.erase(it);
+        }
+        for (Profil p : plan.laden) {
+            const std::string inhalt = "{\"name\":\"" + p.name + "\",\"sha\":\"" + p.sha1 + "\"}";
+            dateien[p.datei] = inhalt;
+            p.inhalt = inhalt_hash(inhalt);
+            verz[p.id] = p;
+        }
+    };
+
+    pruefe(inhalt_hash("abc") == inhalt_hash("abc") && inhalt_hash("abc") != inhalt_hash("abd") && inhalt_hash("").size() == 16, "inhalt_hash");
+
+    // Erster Abgleich: alles neu, „Eigener Drucker“ gibt es schon als eigenes Profil.
+    auto plan = profil_plan(portal, verz, datei_hash);
     pruefe(plan.neu == 2 && plan.laden.size() == 2 && plan.belegt.size() == 1 && plan.entfernen.empty(), "erster Abgleich");
     pruefe(plan.laden[0].datei == "filament/3 Eulen PLA @A1.json", "Pfad im Plan");
+    ausfuehren(plan);
 
-    // Verzeichnis nach dem Laden
-    for (const auto& p : plan.laden) {
-        verz[p.id] = p;
-        da.insert(p.datei);
-    }
     const auto gelesen = verzeichnis_lesen(verzeichnis_schreiben(verz));
-    pruefe(gelesen.size() == 2 && gelesen.at("aaaaaaaaaaaaaaaa").datei == "filament/3 Eulen PLA @A1.json", "Verzeichnis hin und zurück");
+    pruefe(gelesen.size() == 2 && gelesen.at("aaaaaaaaaaaaaaaa").datei == "filament/3 Eulen PLA @A1.json" && gelesen.at("aaaaaaaaaaaaaaaa").inhalt.size() == 16,
+           "Verzeichnis hin und zurück");
     pruefe(verzeichnis_lesen("{\"profile\":{\"aaaaaaaaaaaaaaaa\":{\"art\":\"filament\",\"name\":\"x\",\"sha1\":\"\",\"datei\":\"../../x.json\"}}}").empty(), "Verzeichnis ohne ..");
 
     // Zweiter Abgleich ohne Änderung: nichts zu tun
-    plan = profil_plan(portal, gelesen, datei_da);
-    pruefe(plan.laden.empty() && plan.entfernen.empty() && plan.belegt.size() == 1, "nichts geändert");
+    plan = profil_plan(portal, verz, datei_hash);
+    pruefe(plan.laden.empty() && plan.entfernen.empty() && plan.freigeben.empty() && plan.belegt.size() == 1, "nichts geändert");
 
-    // Geändert (neue Prüfsumme), umbenannt, gelöscht
+    // Geändert (neue Prüfsumme) und umbenannt; „Eigener Drucker“ fehlt jetzt im Portal (gehört nicht uns → bleibt)
     auto portal2 = portal;
     portal2[0].sha1 = "ffffffffffffffffffffffffffffffffffffffff";
     portal2[1].name = "0.16mm 3 Eulen @A1";
     portal2.erase(portal2.begin() + 2);
-    portal2[1].id = "bbbbbbbbbbbbbbbb";
-    plan = profil_plan(portal2, gelesen, datei_da);
-    pruefe(plan.geaendert == 2 && plan.neu == 0, "geändert und umbenannt");
-    bool alt_weg = false;
-    for (const auto& e : plan.entfernen)
-        alt_weg = alt_weg || e.datei == "process/0.20mm 3 Eulen @A1.json";
-    pruefe(alt_weg && plan.entfernen.size() == 1, "alte Datei der Umbenennung entfernen");
+    plan = profil_plan(portal2, verz, datei_hash);
+    pruefe(plan.geaendert == 2 && plan.neu == 0 && plan.entfernen.size() == 1 && plan.entfernen[0].datei == "process/0.20mm 3 Eulen @A1.json", "geändert und umbenannt");
+    ausfuehren(plan);
+    pruefe(dateien.count("process/0.16mm 3 Eulen @A1.json") && !dateien.count("process/0.20mm 3 Eulen @A1.json") && dateien.count("machine/Eigener Drucker.json"),
+           "Dateien nach Umbenennen, eigenes Profil bleibt");
 
-    // Im Portal gelöscht
-    plan = profil_plan({portal[0]}, gelesen, datei_da);
-    pruefe(plan.entfernen.size() == 1 && plan.entfernen[0].id == "bbbbbbbbbbbbbbbb", "gelöscht");
+    // Nur Schreibweise geändert (Windows: dieselbe Datei) → nicht „belegt“, sondern neu schreiben
+    auto portal3 = portal2;
+    portal3[1].name = "0.16MM 3 Eulen @A1";
+    plan = profil_plan(portal3, verz, datei_hash);
+    pruefe(plan.belegt.empty() && plan.laden.size() == 1 && plan.entfernen.size() == 1, "Schreibweise geändert");
+    ausfuehren(plan);
+    pruefe(dateien.count("process/0.16MM 3 Eulen @A1.json") && dateien.size() == 3, "nach Schreibweise: eine Datei");
+
+    // Gelöscht und gleichnamig neu hochgeladen (neue id, gleicher Pfad): erst entfernen, dann laden
+    auto portal4 = portal3;
+    portal4[0].id   = "ffffffffffffffff";
+    portal4[0].sha1 = "3333333333333333333333333333333333333333";
+    plan = profil_plan(portal4, verz, datei_hash);
+    ausfuehren(plan);
+    pruefe(dateien.count("filament/3 Eulen PLA @A1.json") && verz.count("ffffffffffffffff") && !verz.count("aaaaaaaaaaaaaaaa"), "neu hochgeladen, Datei bleibt da");
+
+    // Im Slicer geändert und gespeichert → gehört jetzt der Person: weder überschreiben noch löschen
+    dateien["filament/3 Eulen PLA @A1.json"] = "{\"im slicer geaendert\":1}";
+    auto portal5 = portal4;
+    portal5[0].sha1 = "4444444444444444444444444444444444444444";
+    plan = profil_plan(portal5, verz, datei_hash);
+    pruefe(plan.freigeben.size() == 1 && plan.laden.empty() && plan.belegt.size() == 1, "lokal geändert: nicht überschreiben");
+    ausfuehren(plan);
+    plan = profil_plan({portal5[1]}, verz, datei_hash); // im Portal gelöscht
+    pruefe(dateien.count("filament/3 Eulen PLA @A1.json") && !verz.count("ffffffffffffffff"), "lokal geänderte Datei bleibt");
 
     // Datei fehlt lokal (von Hand gelöscht) → neu laden
-    da.erase("filament/3 Eulen PLA @A1.json");
-    plan = profil_plan(portal, gelesen, datei_da);
-    pruefe(plan.laden.size() == 1 && plan.laden[0].id == "aaaaaaaaaaaaaaaa", "fehlende Datei neu laden");
+    dateien.erase("process/0.16MM 3 Eulen @A1.json");
+    plan = profil_plan(portal5, verz, datei_hash);
+    bool neu_laden = false;
+    for (const auto& p : plan.laden)
+        neu_laden = neu_laden || p.id == "bbbbbbbbbbbbbbbb";
+    pruefe(neu_laden, "fehlende Datei neu laden");
 
     std::printf("%d ok, %d fehlgeschlagen\n", g_ok, g_fehler);
     return g_fehler == 0 ? 0 : 1;

@@ -120,8 +120,13 @@ bool unter_adresse(const std::string& basis, const std::string& url)
         return false;
     if (!beginnt_mit(r2, r1))
         return false;
+    // Nach dem Anfang nur einfache Zeichen: keine Kodierungen, kein „..“ und kein zweites
+    // rest_route (WordPress nähme sonst diese Route statt der im Pfad).
     const std::string danach = klein(r2.substr(r1.size()));
-    return danach.find("..") == std::string::npos && danach.find("%2e") == std::string::npos;
+    for (unsigned char c : danach)
+        if (!(std::isalnum(c) || c == '/' || c == '.' || c == '-' || c == '_' || c == '?' || c == '&' || c == '=' || c == '#'))
+            return false;
+    return danach.find("..") == std::string::npos && danach.find("rest_route") == std::string::npos;
 }
 
 std::string seiten_basis(const std::string& api) { return api.empty() ? std::string() : api + "slicer/seite/"; }
@@ -160,6 +165,22 @@ std::string fehlertext(const std::string& body, unsigned status, const std::stri
     if (status != 0)
         return "Das Portal antwortet mit HTTP " + std::to_string(status) + ".";
     return "Keine Verbindung zum Portal.";
+}
+
+std::string inhalt_hash(const std::string& inhalt)
+{
+    std::uint64_t h = 1469598103934665603ULL; // FNV-1a, 64 Bit
+    for (unsigned char c : inhalt) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    static const char* hex = "0123456789abcdef";
+    std::string out(16, '0');
+    for (int i = 15; i >= 0; --i) {
+        out[static_cast<size_t>(i)] = hex[h & 15];
+        h >>= 4;
+    }
+    return out;
 }
 
 std::string profil_dateiname(const std::string& name)
@@ -231,8 +252,9 @@ std::map<std::string, Profil> verzeichnis_lesen(const std::string& json_text)
             p.id    = id;
             p.art   = text(e, "art");
             p.name  = text(e, "name");
-            p.sha1  = text(e, "sha1");
-            p.datei = text(e, "datei");
+            p.sha1   = text(e, "sha1");
+            p.datei  = text(e, "datei");
+            p.inhalt = text(e, "inhalt");
             if (ist_art(p.art) && !p.datei.empty() && p.datei.find("..") == std::string::npos && beginnt_mit(p.datei, p.art + "/"))
                 out[id] = p;
         }
@@ -246,29 +268,37 @@ std::string verzeichnis_schreiben(const std::map<std::string, Profil>& verzeichn
 {
     json profile = json::object();
     for (const auto& [id, p] : verzeichnis)
-        profile[id] = {{"art", p.art}, {"name", p.name}, {"sha1", p.sha1}, {"datei", p.datei}};
+        profile[id] = {{"art", p.art}, {"name", p.name}, {"sha1", p.sha1}, {"datei", p.datei}, {"inhalt", p.inhalt}};
     json j = {{"version", 1}, {"hinweis", "Profile aus dem 3 Eulen Portal – der EulenSlicer ändert und löscht nur diese."}, {"profile", profile}};
     return j.dump(1, '\t');
 }
 
 ProfilPlan profil_plan(const std::vector<Profil>& portal, const std::map<std::string, Profil>& verzeichnis,
-                       const std::function<bool(const std::string&)>& datei_da)
+                       const std::function<std::string(const std::string&)>& datei_hash)
 {
     ProfilPlan plan;
+    // Windows unterscheidet bei Dateinamen nicht zwischen Groß und klein.
     std::set<std::string> eigene; // Dateien, die uns (dem Portal) gehören
     for (const auto& [id, v] : verzeichnis)
-        eigene.insert(v.datei);
+        eigene.insert(klein(v.datei));
     std::set<std::string> vergeben;
     std::set<std::string> im_portal;
 
+    // Gehört die Datei noch uns? Nein, wenn jemand sie im Slicer geändert hat.
+    auto lokal_geaendert = [&datei_hash](const Profil& v) {
+        const std::string h = datei_hash(v.datei);
+        return !h.empty() && !v.inhalt.empty() && h != v.inhalt;
+    };
+
     for (Profil p : portal) {
         p.datei = p.art + "/" + profil_dateiname(p.name) + ".json";
-        if (vergeben.count(p.datei))
+        if (vergeben.count(klein(p.datei)))
             continue; // zwei Namen ergeben dieselbe Datei – der erste gewinnt
-        vergeben.insert(p.datei);
+        vergeben.insert(klein(p.datei));
         im_portal.insert(p.id);
-        const auto alt = verzeichnis.find(p.id);
-        const bool fremd = datei_da(p.datei) && !eigene.count(p.datei);
+        const auto alt   = verzeichnis.find(p.id);
+        const bool da    = !datei_hash(p.datei).empty();
+        const bool fremd = da && !eigene.count(klein(p.datei));
         if (alt == verzeichnis.end()) {
             if (fremd) {
                 plan.belegt.push_back(p);
@@ -279,21 +309,31 @@ ProfilPlan profil_plan(const std::vector<Profil>& portal, const std::map<std::st
             continue;
         }
         const Profil& v = alt->second;
-        if (v.sha1 == p.sha1 && v.datei == p.datei && datei_da(p.datei))
+        if (lokal_geaendert(v)) {
+            // Im Slicer geändert und gespeichert: Das gilt jetzt als eigenes Profil.
+            plan.freigeben.push_back(v);
+            plan.belegt.push_back(p);
             continue;
-        if (v.datei != p.datei) {
-            if (fremd) {
-                plan.belegt.push_back(p);
-                continue;
-            }
-            plan.entfernen.push_back(v);
         }
+        if (v.sha1 == p.sha1 && klein(v.datei) == klein(p.datei) && v.datei == p.datei && da)
+            continue;
+        if (klein(v.datei) != klein(p.datei) && fremd) {
+            plan.belegt.push_back(p);
+            continue;
+        }
+        if (v.datei != p.datei)
+            plan.entfernen.push_back(v); // umbenannt (auch nur in der Schreibweise)
         plan.laden.push_back(p);
         ++plan.geaendert;
     }
-    for (const auto& [id, v] : verzeichnis)
-        if (!im_portal.count(id))
+    for (const auto& [id, v] : verzeichnis) {
+        if (im_portal.count(id))
+            continue;
+        if (lokal_geaendert(v))
+            plan.freigeben.push_back(v); // im Slicer geändert – bleibt als eigenes Profil
+        else
             plan.entfernen.push_back(v);
+    }
     return plan;
 }
 

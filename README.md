@@ -74,7 +74,11 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
 | `src/slic3r/GUI/MainFrame.cpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und in der Auswahl neben „Drucken“ |
 | `src/libslic3r/AppConfig.cpp` | Login-Spalte von OrcaCloud auf der normalen Startseite standardmäßig aus |
 | `resources/images/` | Startbild und Symbole aus `bilder/` (auch Symbol der `.exe` und der MSI) |
+| `src/slic3r/Utils/Http.cpp`, `Http.hpp` | `Http::follow_redirects(bool)` – Anfragen ans Portal folgen keinen Weiterleitungen (sonst ginge der Zugang im Kopf `X-Api-Key` an das neue Ziel) |
 | `src/slic3r/CMakeLists.txt` | baut die Dateien aus `quellen/` mit |
+
+Statt `.patch`-Dateien stehen dort die Original-Stellen und ihr Ersatz. Ändert OrcaSlicer
+eine Stelle, bricht das Skript mit „Stelle nicht gefunden“ ab – dann die Liste anpassen.
 
 ### Brücke zu den Seiten des Portals
 
@@ -95,12 +99,15 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
   danach das Fenster „senden“.
 - **Profile:** `GET …/slicer/api/profile`, geänderte nach
   `%APPDATA%\EulenSlicer\user\<Konto>\<machine|filament|process>\`. Welche aus dem Portal
-  kommen, steht in `eulen_profile.json` daneben – nur die ändert oder löscht der Slicer;
-  gleichnamige eigene Profile bleiben unangetastet. Sind gerade Profile geändert und nicht
-  gespeichert, erscheinen die neuen erst nach dem nächsten Start.
-
-Statt `.patch`-Dateien stehen dort die Original-Stellen und ihr Ersatz. Ändert OrcaSlicer
-eine Stelle, bricht das Skript mit „Stelle nicht gefunden“ ab – dann die Liste anpassen.
+  kommen, steht mit Prüfsumme in `eulen_profile.json` daneben – nur die ändert oder löscht
+  der Slicer. Gleichnamige eigene Profile bleiben unangetastet; ein Profil aus dem Portal,
+  das jemand im Slicer ändert und speichert, gehört ab dann der Person (es wird nicht mehr
+  überschrieben). Profile mit Nachbearbeitungs-Skripten (`post_process`) lehnt der Slicer ab.
+  Neue Profile erscheinen sofort, geänderte und gelöschte nach dem nächsten Start (OrcaSlicer
+  lädt geladene Profile nicht neu); sind gerade Profile ungespeichert geändert, auch die neuen.
+- **Normale Befehle der Startseite:** Von der Portal-Seite nimmt der Slicer nur die Befehle
+  für zuletzt geöffnete Projekte, „Neues Projekt“ und „Projekt öffnen“ an; alles andere von
+  OrcaSlicer (OrcaCloud, Anmelde-Zeitgeber) bleibt draußen.
 
 ## Einmal einrichten
 
