@@ -81,6 +81,7 @@ nächste Version einmal von Hand installieren müssen.
 | *Run workflow* ohne „freigeben“ | zurückgezogen – erst testen, dann im Portal freigeben |
 | Tag `v…` pushen (z. B. `v2.4.2-3`) | freigegeben |
 | Push auf `main`, der `orca.version`, `quellen/`, `anwenden.py` oder den Installer ändert | zurückgezogen |
+| *Run workflow* mit „Nur bauen“ | nichts – die MSI liegt nur unter *Artifacts* (Test, geht auch ohne Secrets) |
 
 „Was ist neu?“ kommt aus dem Feld beim Starten von Hand, sonst aus der Commit-Nachricht.
 
