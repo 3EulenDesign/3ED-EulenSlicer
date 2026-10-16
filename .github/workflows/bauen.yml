@@ -3,8 +3,8 @@
 # Läuft
 #  - von Hand: Actions → „EulenSlicer bauen“ → Run workflow (mit „freigeben“ und „Was ist neu?“),
 #  - bei einem Tag „v…“ (wird gleich freigegeben),
-#  - wenn sich auf main orca.version, quellen/, das Skript oder der Installer ändern
-#    (wird hochgeladen, aber zurückgezogen – im Portal zum Testen freigeben).
+#  - wenn sich auf main orca.version ändert (neue OrcaSlicer-Version; wird hochgeladen,
+#    aber zurückgezogen – im Portal zum Testen freigeben).
 #
 # Braucht unter Settings → Secrets and variables → Actions (Werte im Portal unter
 # 3 Eulen → EulenSlicer → GitHub):
@@ -35,10 +35,6 @@ on:
     branches: [main]
     paths:
       - "orca.version"
-      - "quellen/**"
-      - "skripte/anwenden.py"
-      - "skripte/msi.ps1"
-      - "installer/**"
 
 concurrency:
   group: eulenslicer-bauen

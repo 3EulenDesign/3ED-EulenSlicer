@@ -33,6 +33,7 @@ tests/kern_test.cpp          Test für den Kern (läuft in „Prüfen“)
 .github/workflows/
   bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal
   msi.yml                    „MSI neu packen“: nur die MSI aus dem Programmordner eines Laufs (Minuten statt Stunden)
+  kompilieren.yml            „Kompilieren“: übersetzt nur die geänderten Dateien (etwa 15 Minuten), bei jedem Push auf quellen/
   pruefen.yml                „Prüfen“: Kern-Test, Skripte, passen die Stellen zu OrcaSlicer?
   upstream.yml               „OrcaSlicer-Update“: wöchentlich, Pull Request bei neuer OrcaSlicer-Version
 ```
@@ -83,7 +84,7 @@ nächste Version einmal von Hand installieren müssen.
 | *Run workflow* mit „freigeben“ (Standard) | freigegeben – die Slicer holen sie beim nächsten Start |
 | *Run workflow* ohne „freigeben“ | zurückgezogen – erst testen, dann im Portal freigeben |
 | Tag `v…` pushen (z. B. `v2.4.2-3`) | freigegeben |
-| Push auf `main`, der `orca.version`, `quellen/`, `anwenden.py` oder den Installer ändert | zurückgezogen |
+| Push auf `main`, der `orca.version` ändert (neue OrcaSlicer-Version) | zurückgezogen |
 | *Run workflow* mit „Nur bauen“ | nichts – die MSI liegt nur unter *Artifacts* (Test, geht auch ohne Secrets) |
 
 „Was ist neu?“ kommt aus dem Feld beim Starten von Hand, sonst aus der Commit-Nachricht.
