@@ -26,6 +26,10 @@ on:
         description: "Was ist neu? (erscheint im Slicer und im Portal)"
         type: string
         default: ""
+      nur_bauen:
+        description: "Nur bauen (Test): MSI unter Artifacts, nichts ins Portal – geht auch ohne Secrets"
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
     branches: [main]
@@ -68,8 +72,12 @@ jobs:
           if (-not $env:PORTAL_ZUGANG) { $fehlt += 'Secret PORTAL_ZUGANG' }
           if (-not $env:SIGNATUR_SCHLUESSEL) { $fehlt += 'Secret SIGNATUR_SCHLUESSEL' }
           if ($fehlt.Count -gt 0) {
-            Write-Output "::error::Es fehlt unter Settings → Secrets and variables → Actions: $($fehlt -join ', '). Die Werte stehen im Portal unter 3 Eulen → EulenSlicer → GitHub."
-            exit 1
+            if ("${{ inputs.nur_bauen }}" -eq "true") {
+              Write-Output "::warning::Nur bauen: Es fehlt $($fehlt -join ', '). Die MSI taugt zum Testen, sucht aber ohne PORTAL_API/UPDATE_PUBKEY keine Updates."
+            } else {
+              Write-Output "::error::Es fehlt unter Settings → Secrets and variables → Actions: $($fehlt -join ', '). Die Werte stehen im Portal unter 3 Eulen → EulenSlicer → GitHub."
+              exit 1
+            }
           }
 
       - name: Version und Build-Nummer
@@ -159,6 +167,7 @@ jobs:
           retention-days: 14
 
       - name: Ins Portal hochladen
+        if: ${{ !inputs.nur_bauen }}
         shell: pwsh
         env:
           PORTAL_ZUGANG: ${{ secrets.PORTAL_ZUGANG }}
