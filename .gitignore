@@ -1,0 +1,19 @@
+# Checkout von OrcaSlicer und Build-Ergebnisse (lokal)
+/orca/
+*.msi
+*.msi.sig
+*.wixpdb
+kern_test
+kern_test.exe
+__pycache__/
+*.pyc
+
+# Schlüssel nie ins Repo
+*.pem
+*.key
+
+# Betriebssystem und Editoren
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

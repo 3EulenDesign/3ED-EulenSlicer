@@ -1,0 +1,105 @@
+# Jede Woche nachsehen, ob es eine neue Version von OrcaSlicer gibt. Wenn ja:
+# Pull Request, der orca.version hochsetzt – mit dem Ergebnis, ob alle Stellen
+# von skripte/anwenden.py noch passen. Nach dem Zusammenführen baut
+# „EulenSlicer bauen“ die neue Version (im Portal erst zurückgezogen, zum Testen).
+#
+# Einmal einstellen: Settings → Actions → General → Workflow permissions →
+# „Allow GitHub Actions to create and approve pull requests“.
+name: OrcaSlicer-Update
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # montags 5:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  nachsehen:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: eulen
+
+      - name: Neueste Version von OrcaSlicer
+        id: neu
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          neu=$(gh api repos/OrcaSlicer/OrcaSlicer/releases/latest --jq .tag_name)
+          alt=$(tr -d '[:space:]' < eulen/orca.version)
+          echo "neu=$neu" >> "$GITHUB_OUTPUT"
+          echo "alt=$alt" >> "$GITHUB_OUTPUT"
+          zweig="orca-$neu"
+          echo "zweig=$zweig" >> "$GITHUB_OUTPUT"
+          if [ -z "$neu" ] || [ "$neu" = "$alt" ]; then
+            echo "OrcaSlicer $alt ist aktuell."
+            echo "tun=nein" >> "$GITHUB_OUTPUT"
+          elif git -C eulen ls-remote --exit-code --heads origin "$zweig" >/dev/null 2>&1; then
+            echo "Für $neu gibt es schon den Zweig $zweig."
+            echo "tun=nein" >> "$GITHUB_OUTPUT"
+          else
+            echo "Neu: $neu (bisher $alt)"
+            echo "tun=ja" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: OrcaSlicer ${{ steps.neu.outputs.neu }} holen (nur Quelltext)
+        if: steps.neu.outputs.tun == 'ja'
+        uses: actions/checkout@v6
+        with:
+          repository: OrcaSlicer/OrcaSlicer
+          ref: ${{ steps.neu.outputs.neu }}
+          path: orca
+          lfs: false
+          fetch-depth: 1
+          sparse-checkout: |
+            src
+            version.inc
+
+      - name: Passen die Stellen noch?
+        if: steps.neu.outputs.tun == 'ja'
+        id: pruefen
+        run: |
+          set +e
+          python3 eulen/skripte/anwenden.py --orca orca --pruefen > pruefung.txt 2>&1
+          code=$?
+          cat pruefung.txt
+          if [ $code -eq 0 ]; then echo "ergebnis=passt" >> "$GITHUB_OUTPUT"; else echo "ergebnis=passt nicht" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Pull Request anlegen
+        if: steps.neu.outputs.tun == 'ja'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEU: ${{ steps.neu.outputs.neu }}
+          ALT: ${{ steps.neu.outputs.alt }}
+          ZWEIG: ${{ steps.neu.outputs.zweig }}
+          ERGEBNIS: ${{ steps.pruefen.outputs.ergebnis }}
+        working-directory: eulen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$ZWEIG"
+          echo "$NEU" > orca.version
+          git commit -am "OrcaSlicer $NEU"
+          git push origin "$ZWEIG"
+          {
+            echo "OrcaSlicer **$NEU** ist erschienen (bisher $ALT)."
+            echo
+            echo "Release-Notizen: https://github.com/OrcaSlicer/OrcaSlicer/releases/tag/$NEU"
+            echo
+            if [ "$ERGEBNIS" = "passt" ]; then
+              echo "✅ Alle Stellen von \`skripte/anwenden.py\` passen."
+            else
+              echo "⚠️ Nicht alle Stellen passen – vor dem Zusammenführen \`skripte/anwenden.py\` anpassen:"
+            fi
+            echo
+            echo '```'
+            cat ../pruefung.txt
+            echo '```'
+            echo
+            echo "Nach dem Zusammenführen baut „EulenSlicer bauen“ die neue Version. Sie kommt **zurückgezogen** ins Portal – erst testen, dann unter 3 Eulen → EulenSlicer → Versionen freigeben. Der erste Lauf baut die Abhängigkeiten neu (gut 1,5 Stunden)."
+          } > ../beschreibung.md
+          gh pr create --title "OrcaSlicer $NEU" --body-file ../beschreibung.md --base main --head "$ZWEIG"

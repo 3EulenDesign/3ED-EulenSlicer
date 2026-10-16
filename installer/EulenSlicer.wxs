@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  EulenSlicer – MSI für Windows (WiX Toolset v5)
+
+  Gebaut in GitHub Actions („EulenSlicer bauen“):
+    wix build installer/EulenSlicer.wxs -arch x64 -d Version=2.4.17 -bindpath Quelle=<orca>\build\OrcaSlicer
+              -d Icon=<orca>\resources\images\OrcaSlicer.ico -o EulenSlicer-2.4.2-b17.msi
+
+  - Für alle Konten des Rechners (perMachine) nach C:\Program Files\EulenSlicer.
+    Lässt sich auch per GPO/Intune verteilen: msiexec /i EulenSlicer-….msi /qn
+  - Version = OrcaSlicer-Hauptversion.Nebenversion.Build. Der Build zählt immer
+    weiter hoch, so ersetzt jede neue MSI die alte (MajorUpgrade, die alte wird
+    zuerst ganz entfernt – damit gleich nummerierte DLLs sicher ersetzt werden).
+  - Profile und Einstellungen liegen nicht hier, sondern in %APPDATA%\EulenSlicer.
+    Sie bleiben beim Deinstallieren erhalten.
+  - Registriert eulenslicer:// für den Knopf „In EulenSlicer öffnen“ im Portal.
+
+  Die UpgradeCode-GUID nie ändern – sonst installiert Windows neue Versionen
+  neben die alten.
+
+  Lizenz: AGPL-3.0 wie OrcaSlicer.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="EulenSlicer"
+           Manufacturer="3 Eulen Design"
+           Version="$(var.Version)"
+           UpgradeCode="38f4ce24-5478-4041-8b41-69084947f808"
+           Scope="perMachine"
+           Language="1031"
+           Codepage="1252"
+           Compressed="yes">
+
+    <SummaryInformation Description="EulenSlicer – OrcaSlicer mit dem 3 Eulen Portal" Manufacturer="3 Eulen Design" />
+
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="Eine neuere Version des EulenSlicers ist schon installiert." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="EulenSlicer.ico" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="EulenSlicer.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPCOMMENTS" Value="OrcaSlicer mit Upload ins 3 Eulen Portal und Updates aus dem Portal" />
+    <!-- Desktop-Verknüpfung abschalten: msiexec /i … DESKTOP=0 -->
+    <Property Id="DESKTOP" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="EulenSlicer">
+        <!-- Alles aus dem Ordner, den „cmake install“ von OrcaSlicer füllt -->
+        <Files Include="!(bindpath.Quelle)\**" />
+
+        <!-- eulenslicer://open?file=<Adresse> -->
+        <Component Id="Adresse" Guid="46b8a9fb-d7cf-479e-a6bc-1b848b6f2264" Bitness="always64">
+          <RegistryKey Root="HKLM" Key="Software\Classes\eulenslicer">
+            <RegistryValue Type="string" Value="URL:EulenSlicer" />
+            <RegistryValue Name="URL Protocol" Type="string" Value="" />
+            <RegistryKey Key="DefaultIcon">
+              <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]orca-slicer.exe&quot;,0" />
+            </RegistryKey>
+            <RegistryKey Key="shell\open\command">
+              <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]orca-slicer.exe&quot; &quot;%1&quot;" KeyPath="yes" />
+            </RegistryKey>
+          </RegistryKey>
+        </Component>
+
+        <Component Id="Installationsort" Guid="bd67f860-5fb5-4756-8ab3-66d6b926be87" Bitness="always64">
+          <RegistryValue Root="HKLM" Key="Software\3 Eulen Design\EulenSlicer" Name="Ordner" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\3 Eulen Design\EulenSlicer" Name="Version" Type="string" Value="$(var.Version)" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="Startmenue" Guid="92bee45a-ff4a-4890-a173-fd792fcc1120" Bitness="always64">
+        <Shortcut Id="StartmenueVerknuepfung"
+                  Name="EulenSlicer"
+                  Description="EulenSlicer – OrcaSlicer mit dem 3 Eulen Portal"
+                  Target="[INSTALLFOLDER]orca-slicer.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\3 Eulen Design\EulenSlicer" Name="Startmenue" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="Desktop" Guid="d6483ce0-6c21-4dda-91ed-592faa0949b7" Condition="DESKTOP = 1" Bitness="always64">
+        <Shortcut Id="DesktopVerknuepfung"
+                  Name="EulenSlicer"
+                  Description="EulenSlicer – OrcaSlicer mit dem 3 Eulen Portal"
+                  Target="[INSTALLFOLDER]orca-slicer.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\3 Eulen Design\EulenSlicer" Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+  </Package>
+</Wix>

@@ -1,0 +1,55 @@
+# Schnelle Prüfung ohne Windows-Build (ein paar Minuten, Linux):
+#  - Kern des Update-Kanals bauen und testen (SHA-256, Ed25519, Antwort des Portals),
+#  - Python-Skripte übersetzen,
+#  - passen alle Stellen von skripte/anwenden.py zur OrcaSlicer-Version in orca.version?
+#  - ist der Installer gültiges XML?
+name: Prüfen
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: eulen
+
+      - name: Version von OrcaSlicer
+        id: orca
+        run: echo "tag=$(tr -d '[:space:]' < eulen/orca.version)" >> "$GITHUB_OUTPUT"
+
+      - name: OrcaSlicer holen (nur Quelltext)
+        uses: actions/checkout@v6
+        with:
+          repository: OrcaSlicer/OrcaSlicer
+          ref: ${{ steps.orca.outputs.tag }}
+          path: orca
+          lfs: false
+          fetch-depth: 1
+          sparse-checkout: |
+            src
+            deps_src/nlohmann
+            version.inc
+
+      - name: Python-Skripte
+        run: python3 -m py_compile eulen/skripte/anwenden.py eulen/skripte/hochladen.py
+
+      - name: Stellen in OrcaSlicer
+        run: python3 eulen/skripte/anwenden.py --orca orca --pruefen
+
+      - name: Kern des Update-Kanals testen
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+            -I eulen/quellen -I orca/deps_src \
+            eulen/tests/kern_test.cpp eulen/quellen/EulenUpdaterKern.cpp -lcrypto -o kern_test
+          ./kern_test
+
+      - name: Installer (XML)
+        run: python3 -c "import xml.dom.minidom as m; m.parse('eulen/installer/EulenSlicer.wxs'); print('EulenSlicer.wxs ok')"

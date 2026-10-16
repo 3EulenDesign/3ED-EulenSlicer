@@ -1,0 +1,176 @@
+# EulenSlicer für Windows bauen, als MSI packen, signieren und ins Portal laden.
+#
+# Läuft
+#  - von Hand: Actions → „EulenSlicer bauen“ → Run workflow (mit „freigeben“ und „Was ist neu?“),
+#  - bei einem Tag „v…“ (wird gleich freigegeben),
+#  - wenn sich auf main orca.version, quellen/, das Skript oder der Installer ändern
+#    (wird hochgeladen, aber zurückgezogen – im Portal zum Testen freigeben).
+#
+# Braucht unter Settings → Secrets and variables → Actions (Werte im Portal unter
+# 3 Eulen → EulenSlicer → GitHub):
+#   Variablen: PORTAL_API, UPDATE_PUBKEY (optional BUILD_OFFSET)
+#   Secrets:   PORTAL_ZUGANG, SIGNATUR_SCHLUESSEL
+#
+# Der erste Lauf baut die Abhängigkeiten von OrcaSlicer (gut 1,5 Stunden) und legt
+# sie in den Zwischenspeicher; danach dauert ein Lauf etwa eine Stunde.
+name: EulenSlicer bauen
+
+on:
+  workflow_dispatch:
+    inputs:
+      freigeben:
+        description: "Gleich für alle freigeben (sonst im Portal zurückgezogen, zum Testen)"
+        type: boolean
+        default: true
+      notizen:
+        description: "Was ist neu? (erscheint im Slicer und im Portal)"
+        type: string
+        default: ""
+  push:
+    tags: ["v*"]
+    branches: [main]
+    paths:
+      - "orca.version"
+      - "quellen/**"
+      - "skripte/anwenden.py"
+      - "installer/**"
+
+concurrency:
+  group: eulenslicer-bauen
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bauen:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 355
+    env:
+      PORTAL_API: ${{ vars.PORTAL_API }}
+      UPDATE_PUBKEY: ${{ vars.UPDATE_PUBKEY }}
+    steps:
+      - name: EulenSlicer-Repo holen
+        uses: actions/checkout@v6
+        with:
+          path: eulen
+
+      - name: Einstellungen prüfen
+        shell: pwsh
+        env:
+          PORTAL_ZUGANG: ${{ secrets.PORTAL_ZUGANG }}
+          SIGNATUR_SCHLUESSEL: ${{ secrets.SIGNATUR_SCHLUESSEL }}
+        run: |
+          $fehlt = @()
+          if (-not $env:PORTAL_API) { $fehlt += 'Variable PORTAL_API' }
+          if (-not $env:UPDATE_PUBKEY) { $fehlt += 'Variable UPDATE_PUBKEY' }
+          if (-not $env:PORTAL_ZUGANG) { $fehlt += 'Secret PORTAL_ZUGANG' }
+          if (-not $env:SIGNATUR_SCHLUESSEL) { $fehlt += 'Secret SIGNATUR_SCHLUESSEL' }
+          if ($fehlt.Count -gt 0) {
+            Write-Output "::error::Es fehlt unter Settings → Secrets and variables → Actions: $($fehlt -join ', '). Die Werte stehen im Portal unter 3 Eulen → EulenSlicer → GitHub."
+            exit 1
+          }
+
+      - name: Version und Build-Nummer
+        id: orca
+        shell: pwsh
+        run: |
+          $tag = (Get-Content eulen/orca.version -Raw).Trim()
+          if ($tag -notmatch '^v\d+\.\d+\.\d+') { Write-Output "::error::orca.version enthält keinen Tag wie v2.4.2: '$tag'"; exit 1 }
+          $offset = 0
+          if ("${{ vars.BUILD_OFFSET }}" -match '^\d+$') { $offset = [int]"${{ vars.BUILD_OFFSET }}" }
+          $build = [int]"${{ github.run_number }}" + $offset
+          "tag=$tag" | Out-File -Append -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          "EULEN_BUILD=$build" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+          Write-Output "OrcaSlicer $tag, Build $build"
+
+      - name: OrcaSlicer holen
+        uses: actions/checkout@v6
+        with:
+          repository: OrcaSlicer/OrcaSlicer
+          ref: ${{ steps.orca.outputs.tag }}
+          path: orca
+          lfs: false
+          fetch-depth: 1
+
+      - name: Anpassungen des EulenSlicers anwenden
+        id: anpassen
+        shell: pwsh
+        run: python eulen/skripte/anwenden.py --orca orca
+
+      - name: Abhängigkeiten aus dem Zwischenspeicher
+        id: deps
+        uses: actions/cache/restore@v5
+        with:
+          path: orca/deps/build/OrcaSlicer_dep
+          key: eulen-windows-x64-deps-${{ hashFiles('orca/deps/**') }}
+
+      - name: CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "~4.3.0"
+
+      - name: MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Abhängigkeiten bauen (nur beim ersten Mal oder nach einem OrcaSlicer-Update)
+        if: steps.deps.outputs.cache-hit != 'true'
+        working-directory: orca
+        shell: pwsh
+        run: |
+          choco install strawberryperl -y --no-progress
+          .\build_release_vs.bat deps
+          if (-not (Test-Path deps/build/OrcaSlicer_dep)) { Write-Output "::error::Die Abhängigkeiten wurden nicht gebaut."; exit 1 }
+
+      - name: Abhängigkeiten in den Zwischenspeicher
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: orca/deps/build/OrcaSlicer_dep
+          key: ${{ steps.deps.outputs.cache-primary-key }}
+
+      - name: EulenSlicer bauen
+        working-directory: orca
+        shell: pwsh
+        run: |
+          .\build_release_vs.bat slicer
+          if (-not (Test-Path build/OrcaSlicer/orca-slicer.exe)) { Write-Output "::error::orca-slicer.exe fehlt nach dem Bauen."; exit 1 }
+
+      - name: MSI bauen
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          $msi = "EulenSlicer-${{ steps.anpassen.outputs.orca_version }}-b$($env:EULEN_BUILD).msi"
+          wix build eulen/installer/EulenSlicer.wxs -arch x64 `
+            -d "Version=${{ steps.anpassen.outputs.msi_version }}" `
+            -d "Icon=orca/resources/images/OrcaSlicer.ico" `
+            -bindpath "Quelle=orca/build/OrcaSlicer" `
+            -o $msi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "MSI=$msi" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+          Get-Item $msi | Format-List Name, Length
+
+      - name: MSI aufheben (14 Tage unter „Artifacts“)
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.MSI }}
+          path: ${{ env.MSI }}
+          retention-days: 14
+
+      - name: Ins Portal hochladen
+        shell: pwsh
+        env:
+          PORTAL_ZUGANG: ${{ secrets.PORTAL_ZUGANG }}
+          SIGNATUR_SCHLUESSEL: ${{ secrets.SIGNATUR_SCHLUESSEL }}
+          FREIGEBEN: ${{ (github.event_name == 'workflow_dispatch' && inputs.freigeben) || startsWith(github.ref, 'refs/tags/') }}
+          # „Was ist neu?“ liest hochladen.py aus der Umgebung (keine Anführungszeichen-Probleme).
+          NOTIZEN: ${{ inputs.notizen || github.event.head_commit.message }}
+        run: |
+          python -m pip install --disable-pip-version-check --quiet cryptography
+          $argumente = @('eulen/skripte/hochladen.py', '--msi', $env:MSI, '--version', '${{ steps.anpassen.outputs.orca_version }}',
+                         '--build', $env:EULEN_BUILD, '--orca', '${{ steps.anpassen.outputs.orca_version }}',
+                         '--signatur-datei', "$env:MSI.sig")
+          if ($env:FREIGEBEN -ne 'true') { $argumente += '--nicht-freigeben' }
+          python @argumente
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
