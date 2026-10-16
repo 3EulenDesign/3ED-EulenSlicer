@@ -188,7 +188,15 @@ def main() -> None:
     ap.add_argument("--portal-api", default=os.environ.get("PORTAL_API", ""))
     ap.add_argument("--pubkey", default=os.environ.get("UPDATE_PUBKEY", ""))
     ap.add_argument("--pruefen", action="store_true", help="nur prüfen, ob alle Stellen passen")
+    ap.add_argument("--dateien", action="store_true", help="nur die .cpp-Dateien ausgeben, die der EulenSlicer ändert oder bringt")
     args = ap.parse_args()
+
+    if args.dateien:
+        dateien = {d for d, _, _, _ in ERSETZUNGEN if d.endswith(".cpp")}
+        dateien |= {f"src/slic3r/GUI/{q.name}" for q in (HIER / "quellen").glob("*.cpp")}
+        for d in sorted(dateien):
+            print(d)
+        return
 
     orca = Path(args.orca).resolve()
     if not (orca / "src" / "slic3r" / "GUI" / "GUI_App.cpp").is_file():

@@ -1,0 +1,100 @@
+# Schneller Kompilier-Check auf Windows: übersetzt nur die Dateien, die der
+# EulenSlicer ändert oder neu bringt (quellen/*.cpp und die .cpp-Dateien aus
+# skripte/anwenden.py) – ohne den Rest von OrcaSlicer zu bauen und ohne Linken.
+# Dauert etwa eine Viertelstunde statt anderthalb Stunden.
+#
+# Braucht die Abhängigkeiten im Zwischenspeicher (legt „EulenSlicer bauen“ an).
+name: Kompilieren
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "quellen/**"
+      - "skripte/anwenden.py"
+      - ".github/workflows/kompilieren.yml"
+
+concurrency:
+  group: eulenslicer-kompilieren-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  kompilieren:
+    name: Windows x64 (nur geänderte Dateien)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      PORTAL_API: ${{ vars.PORTAL_API }}
+      UPDATE_PUBKEY: ${{ vars.UPDATE_PUBKEY }}
+      EULEN_BUILD: "1"
+    steps:
+      - name: EulenSlicer-Repo holen
+        uses: actions/checkout@v6
+        with:
+          path: eulen
+
+      - name: Version von OrcaSlicer
+        id: orca
+        shell: pwsh
+        run: |
+          $tag = (Get-Content eulen/orca.version -Raw).Trim()
+          "tag=$tag" | Out-File -Append -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+
+      - name: OrcaSlicer holen
+        uses: actions/checkout@v6
+        with:
+          repository: OrcaSlicer/OrcaSlicer
+          ref: ${{ steps.orca.outputs.tag }}
+          path: orca
+          lfs: false
+          fetch-depth: 1
+
+      - name: Anpassungen anwenden
+        shell: pwsh
+        run: python eulen/skripte/anwenden.py --orca orca
+
+      - name: Abhängigkeiten aus dem Zwischenspeicher
+        uses: actions/cache/restore@v5
+        with:
+          path: orca/deps/build/OrcaSlicer_dep
+          key: eulen-windows-x64-deps-${{ hashFiles('orca/deps/**') }}
+          fail-on-cache-miss: true
+
+      - name: CMake und Ninja
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "~4.3.0"
+
+      - name: MSVC-Umgebung
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: CMake einrichten (Ninja)
+        shell: pwsh
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          cmake -S orca -B orca/build-check -G Ninja -DCMAKE_BUILD_TYPE=Release -DORCA_TOOLS=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Geänderte Dateien übersetzen
+        shell: pwsh
+        run: |
+          $dateien = python eulen/skripte/anwenden.py --orca orca --dateien
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $alle = ninja -C orca/build-check -t targets all | ForEach-Object { ($_ -split ':')[0] }
+          $ziele = @()
+          foreach ($datei in $dateien) {
+            $rel = $datei -replace '^src/(libslic3r|slic3r)/', ''
+            $treffer = $alle | Where-Object { $_ -like "*.dir/$rel.obj" -and $_ -like "src/*" }
+            if (-not $treffer) { Write-Output "::warning::Kein Ziel für $datei gefunden."; continue }
+            $ziele += $treffer
+          }
+          $ziele = $ziele | Sort-Object -Unique
+          Write-Output "Übersetze:"; $ziele | ForEach-Object { Write-Output "  $_" }
+          ninja -C orca/build-check -k 0 @ziele
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::Mindestens eine Datei lässt sich nicht übersetzen – siehe oben."; exit $LASTEXITCODE }
