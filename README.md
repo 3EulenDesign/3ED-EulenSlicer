@@ -3,10 +3,24 @@
 Der EulenSlicer ist [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) mit ein paar
 Anpassungen für 3 Eulen Design – gebaut für Windows als MSI:
 
-- **Druckdateien ins Portal:** Geslicete Dateien gehen mit „Hochladen“ als Druckauftrag
-  ins 3 Eulen Portal (Modul „EulenSlicer“ in [3ED-App](https://github.com/3EulenDesign/3ED-App)).
-  Gedruckt wird erst nach der Freigabe im Auftrag; dann startet der Drucker-Agent in der
-  Werkstatt den Druck. Direkt im LAN drucken geht weiterhin.
+- **Eulen statt Orca:** Startbild mit den drei Eulen aus dem Website-Theme, App-Symbol mit
+  der Schiefer-Eule, Menü „3 Eulen“ in der Titelleiste.
+- **Anmelden im Browser:** „Anmelden“ zeigt einen Code, der Browser öffnet das Portal, dort
+  bestätigen – fertig. Kein Schlüssel zum Abtippen, kein OrcaCloud-Konto. Ohne Konto geht es
+  mit dem **Werkstatt-Code** (Name Pflicht, E-Mail freiwillig).
+- **An 3 Eulen senden:** neben „Drucken“, im Menü „3 Eulen“ und auf der Startseite. Der
+  Slicer speichert das Projekt (geslicet mit G-Code der Platte, sonst nur das Modell), legt
+  es im Portal ab und zeigt ein Fenster für Titel, Material, Farbe aus dem Lager, Anzahl,
+  Termin und Notiz. Gedruckt wird erst nach der Freigabe im Auftrag; dann startet der
+  Drucker-Agent in der Werkstatt den Druck. Direkt im LAN drucken geht weiterhin.
+- **Startseite und „Meine Aufträge“ aus dem Portal:** zuletzt geöffnete Projekte, eigene
+  offene Aufträge mit Rückfragen, Drucker in der Werkstatt, Hinweise aus der Verwaltung.
+  Ohne Verbindung zum Portal bleibt die normale Startseite.
+- **Profile aus dem Portal:** gemeinsame Drucker-, Filament- und Prozess-Profile kommen
+  beim Start (und auf Wunsch) aus dem Portal.
+- **Druckdateien ins Portal wie bisher:** „Hochladen“ über den Druck-Host (OctoPrint-Schnittstelle,
+  Modul „EulenSlicer“ in [3ED-App](https://github.com/3EulenDesign/3ED-App)) geht weiter –
+  auch mit einem normalen OrcaSlicer.
 - **Updates aus dem Portal:** Beim Start fragt der EulenSlicer das Portal nach einer neueren
   Version, lädt die MSI, prüft ihre Signatur und installiert sie.
 - **Eigener Datenordner** (`%APPDATA%\EulenSlicer`) und eigenes Link-Schema
@@ -23,13 +37,22 @@ orca.version                 Tag von OrcaSlicer, auf dem gebaut wird (z. B. v2.4
 quellen/                     neue Dateien, landen in src/slic3r/GUI/ von OrcaSlicer
   EulenUpdater.cpp/.hpp      Update-Kanal: fragen, laden, prüfen, installieren (wxWidgets)
   EulenUpdaterKern.cpp/.hpp  Kern ohne Oberfläche: Antwort lesen, SHA-256, Ed25519, Installer-Skript
+  EulenPortal.cpp/.hpp       Portal: Startseite, Fenster, Brücke zu den Seiten (eulen_*), Konto in der
+                             Windows-Anmeldeinformationsverwaltung, Senden (3MF speichern, in Stücken
+                             ablegen), Profile abgleichen, Menü „3 Eulen“
+  EulenPortalKern.cpp/.hpp   Kern ohne Oberfläche: welche Adressen dürfen mit dem Slicer reden,
+                             Fehlertexte, Plan für den Abgleich der Profile
+bilder/                      Startbild (splash_logo*.svg) und Symbole mit der Eule, ersetzen die von OrcaSlicer
+  vorschau/                  so sehen die Startbilder aus (nicht im Programm)
 skripte/
-  anwenden.py                kopiert quellen/, schreibt EulenKonfig.hpp, ändert die Stellen in OrcaSlicer
+  anwenden.py                kopiert quellen/ und bilder/, schreibt EulenKonfig.hpp, ändert die Stellen in OrcaSlicer
+  bilder.py                  erzeugt bilder/ (Eulen aus dem Theme, Schriftzug Poppins Bold als Pfad; nur bei Änderungen)
   hochladen.py               signiert die MSI und lädt sie in Stücken ins Portal
   msi.ps1                    baut die MSI aus dem Programmordner (WiX 5, absolute Pfade, Größenprüfung)
 installer/EulenSlicer.wxs    MSI (WiX Toolset 5, Oberfläche Deutsch): für alle Konten, Startmenü, Desktop, eulenslicer://
 installer/Lizenz.rtf         Lizenzhinweis im ersten Fenster der Installation
-tests/kern_test.cpp          Test für den Kern (läuft in „Prüfen“)
+tests/kern_test.cpp          Test für den Kern des Update-Kanals (läuft in „Prüfen“)
+tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in „Prüfen“)
 .github/workflows/
   bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal
   msi.yml                    „MSI neu packen“: nur die MSI aus dem Programmordner eines Laufs (Minuten statt Stunden)
@@ -46,7 +69,35 @@ tests/kern_test.cpp          Test für den Kern (läuft in „Prüfen“)
 | `src/libslic3r/Utils.hpp`, `src/slic3r/GUI/Downloader.cpp`, `src/slic3r/GUI/InstanceCheck.cpp` | `eulenslicer://open?file=…` wird wie `orcaslicer://` geöffnet |
 | `src/slic3r/Utils/OctoPrint.cpp` | Zum Portal (`…/eulen/v1/slicer`) nur mit geprüftem HTTPS-Zertifikat – OrcaSlicer prüft sonst keine Zertifikate, und der API-Schlüssel ist ein Anwendungspasswort |
 | `src/slic3r/GUI/Plater.cpp` | Fenstertitel „… – EulenSlicer“ |
+| `src/slic3r/GUI/GUI_App.cpp` | nach dem Start `eulen_beim_start()` (Profile aus dem Portal) |
+| `src/slic3r/GUI/WebViewDialog.cpp` | Reiter „Start“: Seite aus dem Portal (`eulen_start_einrichten`), von dort nur Seiten des Portals (Links im Browser), Rückfall auf die normale Startseite bei Fehlern, Befehle `eulen_*` der Seite |
+| `src/slic3r/GUI/MainFrame.cpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und in der Auswahl neben „Drucken“ |
+| `src/libslic3r/AppConfig.cpp` | Login-Spalte von OrcaCloud auf der normalen Startseite standardmäßig aus |
+| `resources/images/` | Startbild und Symbole aus `bilder/` (auch Symbol der `.exe` und der MSI) |
 | `src/slic3r/CMakeLists.txt` | baut die Dateien aus `quellen/` mit |
+
+### Brücke zu den Seiten des Portals
+
+Die Fenster „Start“, „An 3 Eulen senden“, „Meine Aufträge“ und „Anmelden“ zeigen Seiten aus
+dem Portal (`…/eulen/v1/slicer/seite/<name>`). Neue Funktionen dort kommen ohne neuen Build.
+Die Seiten schicken `window.wx.postMessage({sequence_id, command, data})`, der Slicer
+antwortet mit `window.postMessage({sequence_id, command, data})` (bei Fehlern `ok: false`,
+`message`). Antworten bekommen nur Seiten unter `<PORTAL_API>slicer/seite/` (Prüfung in
+`EulenPortalKern.cpp`, Test in `tests/portal_test.cpp`); andere Adressen öffnet der Slicer im
+Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_senden`,
+`eulen_oeffnen`, `eulen_profile` …) steht in `eulen-portal/ENTWICKLER.md` im Repo 3ED-App.
+
+- **Konto:** Zugang (`benutzer:anwendungspasswort`, gilt im Portal nur unter `/slicer/api/`)
+  bzw. Werkstatt-Code liegen in der Windows-Anmeldeinformationsverwaltung
+  („EulenSlicer/Portal“, „EulenSlicer/Werkstatt“), nicht in der Konfiguration.
+- **Senden:** `Plater::export_3mf()` nach `%TEMP%\EulenSlicer-Senden\` (geslicete Platte mit
+  G-Code, sonst das ganze Projekt), dann `POST …/slicer/api/ablage`, die Stücke, `…/fertig`,
+  danach das Fenster „senden“.
+- **Profile:** `GET …/slicer/api/profile`, geänderte nach
+  `%APPDATA%\EulenSlicer\user\<Konto>\<machine|filament|process>\`. Welche aus dem Portal
+  kommen, steht in `eulen_profile.json` daneben – nur die ändert oder löscht der Slicer;
+  gleichnamige eigene Profile bleiben unangetastet. Sind gerade Profile geändert und nicht
+  gespeichert, erscheinen die neuen erst nach dem nächsten Start.
 
 Statt `.patch`-Dateien stehen dort die Original-Stellen und ihr Ersatz. Ändert OrcaSlicer
 eine Stelle, bricht das Skript mit „Stelle nicht gefunden“ ab – dann die Liste anpassen.
@@ -108,16 +159,20 @@ so ersetzt jede neue MSI die alte, auch über einen Versionssprung von OrcaSlice
 - **Profile aus OrcaSlicer übernehmen:** Vor dem ersten Start den Ordner
   `%APPDATA%\OrcaSlicer` nach `%APPDATA%\EulenSlicer` kopieren. Sonst startet der
   EulenSlicer mit dem Einrichtungsassistenten.
-- **Mit dem Portal verbinden:** im Portal unter *Interner Bereich → EulenSlicer* einen Zugang
-  für den Rechner anlegen und der Anleitung dort folgen (Drucker-Profil kopieren,
-  „Benutze Drittanbieter-Druck-Hosts“ und „Use 3MF instead of G-code“ anhaken, Host-Typ
-  „Octo/Klipper“ mit Adresse und API-Schlüssel).
+- **Mit dem Portal verbinden:** Startseite → „Anmelden“ (oder Menü „3 Eulen“ → „Anmelden /
+  Konto“) → „Im Browser anmelden“ und im Portal den Code bestätigen. In der Werkstatt ohne
+  Konto: „Ohne Konto (Werkstatt)“ mit dem Code aus dem Aushang. Abmelden widerruft den Zugang
+  im Portal. Der alte Weg über den Druck-Host (Zugang im *Interner Bereich → EulenSlicer*,
+  Host-Typ „Octo/Klipper“) geht weiterhin.
+- **Senden:** „An 3 Eulen senden“ in der Auswahl neben „Drucken“, im Menü „3 Eulen“ oder auf
+  der Startseite. Ist die Platte geslicet, geht die Druckdatei mit; sonst das Modell.
 - **Updates:** Beim Start fragt der EulenSlicer `…/eulen/v1/slicer/update?build=<eigener>`.
   Ist im Portal ein neuerer Build freigegeben, bietet er ihn an. „Ja“ lädt die MSI über einen
   Link, der 30 Minuten gilt, prüft Größe, SHA-256 und die Ed25519-Signatur mit dem
   eingebauten Schlüssel, schließt sich (ein ungespeichertes Projekt fragt er vorher ab) und
   startet `msiexec /passive` – Windows fragt nach Administratorrechten. Danach startet er
-  neu. „Nein“ merkt sich den Build; *Hilfe → Nach Updates suchen* fragt trotzdem.
+  neu. „Nein“ merkt sich den Build; *3 Eulen → Nach Updates suchen* (oder *Hilfe → Nach Updates
+  suchen*) fragt trotzdem.
 - **Fehlersuche:** Protokoll der Installation bei Updates in `%TEMP%\EulenSlicer-Update\installation.log`,
   von Hand: `msiexec /i EulenSlicer-….msi /l*v "%TEMP%\eulenslicer-install.log"`.
   Protokoll des Slicers in `%APPDATA%\EulenSlicer\log`.

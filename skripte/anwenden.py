@@ -11,7 +11,8 @@ Ein zweiter Lauf auf denselben Checkout schadet nicht (schon geänderte Stellen
 werden erkannt).
 
 Was es tut:
-  1. quellen/*.cpp, *.hpp nach src/slic3r/GUI/ kopieren
+  1. quellen/*.cpp, *.hpp nach src/slic3r/GUI/ kopieren, bilder/* (Startbild, Symbole
+     mit der Eule, erzeugt von skripte/bilder.py) nach resources/images/
   2. src/slic3r/GUI/EulenKonfig.hpp schreiben (Build, Adresse des Portals, Schlüssel)
   3. die Stellen in ERSETZUNGEN ändern
   4. Versionen ausgeben (für GitHub Actions auch in $GITHUB_OUTPUT)
@@ -358,6 +359,13 @@ def main() -> None:
     for quelle in sorted((HIER / "quellen").glob("*.[ch]pp")):
         shutil.copy2(quelle, ziel / quelle.name)
         print(f"  kopiert   {quelle.name}")
+    bilder = orca / "resources" / "images"
+    for bild in sorted((HIER / "bilder").glob("*")):
+        if bild.is_file() and bild.suffix in (".svg", ".png", ".ico"):
+            if not (bilder / bild.name).is_file():
+                fehler(f"resources/images/{bild.name} gibt es in OrcaSlicer nicht (mehr) – bilder/ anpassen.")
+            shutil.copy2(bild, bilder / bild.name)
+    print("  kopiert   bilder/* nach resources/images/")
     (ziel / "EulenKonfig.hpp").write_text(
         "// Erzeugt von skripte/anwenden.py (EulenSlicer) – nicht von Hand ändern.\n"
         "#pragma once\n\n"
