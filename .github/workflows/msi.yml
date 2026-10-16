@@ -1,0 +1,89 @@
+# Nur die MSI neu packen – aus dem Programmordner eines Laufs von „EulenSlicer bauen“
+# (der hebt ihn 3 Tage als „EulenSlicer-Programm-b<Build>“ auf). Für Änderungen am
+# Installer, ohne den Slicer neu zu übersetzen: ein paar Minuten statt anderthalb Stunden.
+#
+# Die Build-Nummer bleibt die des ursprünglichen Laufs (sie steckt im Programm).
+name: MSI neu packen
+
+on:
+  workflow_dispatch:
+    inputs:
+      lauf:
+        description: "Nummer des Laufs von „EulenSlicer bauen“ (aus der Adresse …/actions/runs/<Nummer>)"
+        type: string
+        required: true
+      freigeben:
+        description: "Im Portal gleich für alle freigeben"
+        type: boolean
+        default: false
+      nur_bauen:
+        description: "Nur packen (MSI unter Artifacts, nichts ins Portal)"
+        type: boolean
+        default: true
+      notizen:
+        description: "Was ist neu?"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  msi:
+    name: MSI
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: EulenSlicer-Repo holen
+        uses: actions/checkout@v6
+        with:
+          path: eulen
+
+      - name: Programmordner aus dem Lauf holen
+        uses: actions/download-artifact@v8
+        with:
+          pattern: EulenSlicer-Programm-*
+          merge-multiple: true
+          run-id: ${{ inputs.lauf }}
+          github-token: ${{ github.token }}
+          path: programm
+
+      - name: Version und Build lesen
+        id: build
+        shell: pwsh
+        run: |
+          $info = Get-Content programm/eulen-build.json -Raw | ConvertFrom-Json
+          "orca_version=$($info.orca_version)" | Out-File -Append -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          "EULEN_BUILD=$($info.build)" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+          Write-Output "OrcaSlicer $($info.orca_version), Build $($info.build)"
+
+      - name: MSI bauen
+        shell: pwsh
+        run: pwsh eulen/skripte/msi.ps1 -Quelle programm/OrcaSlicer -Version '${{ steps.build.outputs.orca_version }}' -Build $env:EULEN_BUILD
+
+      - name: MSI aufheben (14 Tage unter „Artifacts“)
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.MSI_NAME }}
+          path: ${{ env.MSI }}
+          retention-days: 14
+          overwrite: true
+
+      - name: Ins Portal hochladen
+        if: ${{ !inputs.nur_bauen }}
+        shell: pwsh
+        env:
+          PORTAL_API: ${{ vars.PORTAL_API }}
+          UPDATE_PUBKEY: ${{ vars.UPDATE_PUBKEY }}
+          PORTAL_ZUGANG: ${{ secrets.PORTAL_ZUGANG }}
+          SIGNATUR_SCHLUESSEL: ${{ secrets.SIGNATUR_SCHLUESSEL }}
+          FREIGEBEN: ${{ inputs.freigeben }}
+          NOTIZEN: ${{ inputs.notizen }}
+        run: |
+          python -m pip install --disable-pip-version-check --quiet cryptography
+          $argumente = @('eulen/skripte/hochladen.py', '--msi', $env:MSI, '--version', '${{ steps.build.outputs.orca_version }}',
+                         '--build', $env:EULEN_BUILD, '--orca', '${{ steps.build.outputs.orca_version }}')
+          if ($env:FREIGEBEN -ne 'true') { $argumente += '--nicht-freigeben' }
+          python @argumente
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

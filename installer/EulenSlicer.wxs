@@ -2,13 +2,10 @@
 <!--
   EulenSlicer – MSI für Windows (WiX Toolset v5)
 
-  Gebaut in GitHub Actions („EulenSlicer bauen“):
-    wix extension add -g WixToolset.UI.wixext/5.0.2
-    wix build installer/EulenSlicer.wxs -arch x64 -ext WixToolset.UI.wixext -culture de-DE
-              -d Version=2.4.17 -d Icon=<orca>\resources\images\OrcaSlicer.ico -d Lizenz=<repo>\installer\Lizenz.rtf
-              -bindpath Quelle=<orca>\build\OrcaSlicer -o EulenSlicer-2.4.2-b17.msi
-  Alle Pfade absolut angeben: WiX sucht relative Pfade vom Ordner dieser Datei aus
-  (mit einem relativen Quelle-Pfad entstand eine leere MSI).
+  Gebaut von skripte/msi.ps1 (in GitHub Actions „EulenSlicer bauen“ und „MSI neu packen“):
+    pwsh skripte/msi.ps1 -Quelle <orca>\build\OrcaSlicer -Version 2.4.2 -Build 17
+  Das Skript gibt alle Pfade absolut an WiX – WiX sucht relative Pfade vom Ordner
+  dieser Datei aus (mit einem relativen Quelle-Pfad entstand eine leere MSI).
 
   - Für alle Konten des Rechners (perMachine) nach C:\Program Files\EulenSlicer.
     Lässt sich auch per GPO/Intune verteilen: msiexec /i EulenSlicer-….msi /qn
@@ -47,7 +44,7 @@
 
     <Icon Id="EulenSlicer.ico" SourceFile="$(var.Icon)" />
     <Property Id="ARPPRODUCTICON" Value="EulenSlicer.ico" />
-    <Property Id="ARPNOMODIFY" Value="1" />
+    <!-- ARPNOMODIFY setzt WixUI_Minimal selbst. -->
     <Property Id="ARPCOMMENTS" Value="OrcaSlicer mit Upload ins 3 Eulen Portal und Updates aus dem Portal" />
     <!-- Desktop-Verknüpfung abschalten: msiexec /i … DESKTOP=0 -->
     <Property Id="DESKTOP" Value="1" />

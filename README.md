@@ -26,11 +26,13 @@ quellen/                     neue Dateien, landen in src/slic3r/GUI/ von OrcaSli
 skripte/
   anwenden.py                kopiert quellen/, schreibt EulenKonfig.hpp, ändert die Stellen in OrcaSlicer
   hochladen.py               signiert die MSI und lädt sie in Stücken ins Portal
+  msi.ps1                    baut die MSI aus dem Programmordner (WiX 5, absolute Pfade, Größenprüfung)
 installer/EulenSlicer.wxs    MSI (WiX Toolset 5, Oberfläche Deutsch): für alle Konten, Startmenü, Desktop, eulenslicer://
 installer/Lizenz.rtf         Lizenzhinweis im ersten Fenster der Installation
 tests/kern_test.cpp          Test für den Kern (läuft in „Prüfen“)
 .github/workflows/
   bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal
+  msi.yml                    „MSI neu packen“: nur die MSI aus dem Programmordner eines Laufs (Minuten statt Stunden)
   pruefen.yml                „Prüfen“: Kern-Test, Skripte, passen die Stellen zu OrcaSlicer?
   upstream.yml               „OrcaSlicer-Update“: wöchentlich, Pull Request bei neuer OrcaSlicer-Version
 ```
@@ -85,6 +87,10 @@ nächste Version einmal von Hand installieren müssen.
 | *Run workflow* mit „Nur bauen“ | nichts – die MSI liegt nur unter *Artifacts* (Test, geht auch ohne Secrets) |
 
 „Was ist neu?“ kommt aus dem Feld beim Starten von Hand, sonst aus der Commit-Nachricht.
+
+Jeder Lauf hebt den gebauten Programmordner 3 Tage als `EulenSlicer-Programm-b<Build>` auf.
+Bei Änderungen nur am Installer packt *Actions → MSI neu packen* (Nummer des Laufs eintragen)
+die MSI daraus neu, ohne den Slicer noch einmal zu übersetzen.
 
 **Versionen:** `version` = Version von OrcaSlicer (z. B. 2.4.2), `build` = Lauf-Nummer
 (+ `BUILD_OFFSET`). Die MSI hat die Version `2.4.<build>` – der Build zählt immer weiter,
