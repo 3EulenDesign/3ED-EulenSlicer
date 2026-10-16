@@ -78,7 +78,9 @@ jobs:
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
-          cmake -S orca -B orca/build-check -G Ninja -DCMAKE_BUILD_TYPE=Release -DORCA_TOOLS=OFF
+          # OrcaSlicer sucht die Abhängigkeiten sonst unter deps/<Name des Build-Ordners>.
+          $deps = (Resolve-Path orca/deps/build).Path -replace '\\', '/'
+          cmake -S orca -B orca/build-check -G Ninja -DCMAKE_BUILD_TYPE=Release -DORCA_TOOLS=OFF "-DDEP_BUILD_DIR=$deps"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Geänderte Dateien übersetzen
