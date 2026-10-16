@@ -26,7 +26,8 @@ quellen/                     neue Dateien, landen in src/slic3r/GUI/ von OrcaSli
 skripte/
   anwenden.py                kopiert quellen/, schreibt EulenKonfig.hpp, ändert die Stellen in OrcaSlicer
   hochladen.py               signiert die MSI und lädt sie in Stücken ins Portal
-installer/EulenSlicer.wxs    MSI (WiX Toolset 5): für alle Konten, Startmenü, Desktop, eulenslicer://
+installer/EulenSlicer.wxs    MSI (WiX Toolset 5, Oberfläche Deutsch): für alle Konten, Startmenü, Desktop, eulenslicer://
+installer/Lizenz.rtf         Lizenzhinweis im ersten Fenster der Installation
 tests/kern_test.cpp          Test für den Kern (läuft in „Prüfen“)
 .github/workflows/
   bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal
@@ -110,7 +111,8 @@ so ersetzt jede neue MSI die alte, auch über einen Versionssprung von OrcaSlice
   eingebauten Schlüssel, schließt sich (ein ungespeichertes Projekt fragt er vorher ab) und
   startet `msiexec /passive` – Windows fragt nach Administratorrechten. Danach startet er
   neu. „Nein“ merkt sich den Build; *Hilfe → Nach Updates suchen* fragt trotzdem.
-- **Fehlersuche:** Protokoll der Installation in `%TEMP%\EulenSlicer-Update\installation.log`,
+- **Fehlersuche:** Protokoll der Installation bei Updates in `%TEMP%\EulenSlicer-Update\installation.log`,
+  von Hand: `msiexec /i EulenSlicer-….msi /l*v "%TEMP%\eulenslicer-install.log"`.
   Protokoll des Slicers in `%APPDATA%\EulenSlicer\log`.
 
 ## Neue Version von OrcaSlicer
@@ -138,7 +140,11 @@ cd orca
 .\build_release_vs.bat slicer
 cd ..
 dotnet tool install --global wix --version 5.0.2
-wix build installer\EulenSlicer.wxs -arch x64 -d Version=2.4.9999 -d Icon=orca\resources\images\OrcaSlicer.ico -bindpath Quelle=orca\build\OrcaSlicer -o EulenSlicer-test.msi
+wix extension add -g WixToolset.UI.wixext/5.0.2
+# Pfade absolut – WiX sucht relative Pfade vom Ordner installer\ aus
+wix build installer\EulenSlicer.wxs -arch x64 -ext WixToolset.UI.wixext -culture de-DE `
+  -d Version=2.4.9999 -d Icon=$PWD\orca\resources\images\OrcaSlicer.ico -d Lizenz=$PWD\installer\Lizenz.rtf `
+  -bindpath Quelle=$PWD\orca\build\OrcaSlicer -o EulenSlicer-test.msi
 ```
 
 Den Kern ohne Windows testen (Linux, OpenSSL):

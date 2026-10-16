@@ -49,6 +49,8 @@ permissions:
 jobs:
   bauen:
     name: Windows x64
+    # Bei Pushes nur, wenn GitHub schon eingerichtet ist (sonst gäbe jeder Push einen roten Lauf).
+    if: github.event_name != 'push' || vars.PORTAL_API != ''
     runs-on: windows-latest
     timeout-minutes: 355
     env:
@@ -148,16 +150,34 @@ jobs:
       - name: MSI bauen
         shell: pwsh
         run: |
+          # Alle Pfade absolut: WiX sucht relative Pfade vom Ordner der .wxs aus.
+          $quelle = (Resolve-Path orca/build/OrcaSlicer).Path
+          $icon   = (Resolve-Path orca/resources/images/OrcaSlicer.ico).Path
+          $lizenz = (Resolve-Path eulen/installer/Lizenz.rtf).Path
+          $dateien = @(Get-ChildItem $quelle -Recurse -File)
+          $mb = [math]::Round(($dateien | Measure-Object Length -Sum).Sum / 1MB)
+          Write-Output "Quelle: $quelle – $($dateien.Count) Dateien, $mb MB"
+          if ($dateien.Count -lt 1000 -or -not (Test-Path (Join-Path $quelle 'orca-slicer.exe'))) {
+            Write-Output "::error::Im Ordner $quelle fehlt der gebaute EulenSlicer."
+            exit 1
+          }
           dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
           $msi = "EulenSlicer-${{ steps.anpassen.outputs.orca_version }}-b$($env:EULEN_BUILD).msi"
-          wix build eulen/installer/EulenSlicer.wxs -arch x64 `
+          wix build eulen/installer/EulenSlicer.wxs -arch x64 -ext WixToolset.UI.wixext -culture de-DE `
             -d "Version=${{ steps.anpassen.outputs.msi_version }}" `
-            -d "Icon=orca/resources/images/OrcaSlicer.ico" `
-            -bindpath "Quelle=orca/build/OrcaSlicer" `
+            -d "Icon=$icon" `
+            -d "Lizenz=$lizenz" `
+            -bindpath "Quelle=$quelle" `
             -o $msi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $groesse = (Get-Item $msi).Length
+          Write-Output "MSI: $msi, $([math]::Round($groesse / 1MB)) MB"
+          if ($groesse -lt 30MB) {
+            Write-Output "::error::Die MSI ist nur $groesse Byte groß – die Dateien des EulenSlicers fehlen darin."
+            exit 1
+          }
           "MSI=$msi" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
-          Get-Item $msi | Format-List Name, Length
 
       - name: MSI aufheben (14 Tage unter „Artifacts“)
         uses: actions/upload-artifact@v7

@@ -3,8 +3,12 @@
   EulenSlicer – MSI für Windows (WiX Toolset v5)
 
   Gebaut in GitHub Actions („EulenSlicer bauen“):
-    wix build installer/EulenSlicer.wxs -arch x64 -d Version=2.4.17 -bindpath Quelle=<orca>\build\OrcaSlicer
-              -d Icon=<orca>\resources\images\OrcaSlicer.ico -o EulenSlicer-2.4.2-b17.msi
+    wix extension add -g WixToolset.UI.wixext/5.0.2
+    wix build installer/EulenSlicer.wxs -arch x64 -ext WixToolset.UI.wixext -culture de-DE
+              -d Version=2.4.17 -d Icon=<orca>\resources\images\OrcaSlicer.ico -d Lizenz=<repo>\installer\Lizenz.rtf
+              -bindpath Quelle=<orca>\build\OrcaSlicer -o EulenSlicer-2.4.2-b17.msi
+  Alle Pfade absolut angeben: WiX sucht relative Pfade vom Ordner dieser Datei aus
+  (mit einem relativen Quelle-Pfad entstand eine leere MSI).
 
   - Für alle Konten des Rechners (perMachine) nach C:\Program Files\EulenSlicer.
     Lässt sich auch per GPO/Intune verteilen: msiexec /i EulenSlicer-….msi /qn
@@ -20,7 +24,7 @@
 
   Lizenz: AGPL-3.0 wie OrcaSlicer.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="EulenSlicer"
            Manufacturer="3 Eulen Design"
            Version="$(var.Version)"
@@ -35,6 +39,11 @@
     <MajorUpgrade Schedule="afterInstallInitialize"
                   DowngradeErrorMessage="Eine neuere Version des EulenSlicers ist schon installiert." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Oberfläche: Willkommen mit Lizenzhinweis, Fortschritt, Fertig (Deutsch über -culture de-DE).
+         Updates aus dem Slicer laufen mit msiexec /passive, also nur mit Fortschrittsbalken. -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.Lizenz)" />
 
     <Icon Id="EulenSlicer.ico" SourceFile="$(var.Icon)" />
     <Property Id="ARPPRODUCTICON" Value="EulenSlicer.ico" />
