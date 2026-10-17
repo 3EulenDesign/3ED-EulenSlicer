@@ -89,7 +89,7 @@ struct Konto
 
 struct Werkstatt
 {
-    std::string code, name, email;
+    std::string code, name, email, klasse; // Name, E-Mail und Klasse merkt der Slicer auf Wunsch
 };
 
 struct Ablage
@@ -161,7 +161,7 @@ Zustand& zustand()
         if (auto k = geheim_lesen(DIENST_KONTO))
             z.konto = Konto{k->first, k->second, config("eulen_konto_name")};
         if (auto w = geheim_lesen(DIENST_WERKSTATT))
-            z.werkstatt = Werkstatt{w->second, config("eulen_werkstatt_name"), config("eulen_werkstatt_email")};
+            z.werkstatt = Werkstatt{w->second, config("eulen_werkstatt_name"), config("eulen_werkstatt_email"), config("eulen_werkstatt_klasse")};
     }
     return z;
 }
@@ -709,7 +709,7 @@ json info_json(wxWindow* fenster)
                                   {"name", z.konto->name.empty() ? z.konto->login : z.konto->name},
                                   {"schluessel", z.konto->login + ":" + z.konto->passwort}} :
                              json(nullptr);
-    j["werkstatt"] = !z.konto && z.werkstatt ? json{{"code", z.werkstatt->code}, {"name", z.werkstatt->name}, {"email", z.werkstatt->email}} :
+    j["werkstatt"] = !z.konto && z.werkstatt ? json{{"code", z.werkstatt->code}, {"name", z.werkstatt->name}, {"email", z.werkstatt->email}, {"klasse", z.werkstatt->klasse}} :
                                                json(nullptr);
     j["ablage"]  = z.ablage ? json{{"id", z.ablage->id}, {"schluessel", z.ablage->schluessel}, {"name", z.ablage->name}} : json(nullptr);
     j["rechner"] = into_u8(wxGetHostName());
@@ -756,12 +756,14 @@ void befehl_ausfuehren(wxWebView* browser, wxWindow* fenster, const json& m, con
         if (!code.empty()) {
             if (!geheim_speichern(DIENST_WERKSTATT, "werkstatt", code))
                 return antworten(browser, m, json::object(), "Windows kann den Code nicht speichern (Anmeldeinformationsverwaltung).");
-            z.werkstatt = Werkstatt{code, config("eulen_werkstatt_name"), config("eulen_werkstatt_email")};
+            z.werkstatt = Werkstatt{code, config("eulen_werkstatt_name"), config("eulen_werkstatt_email"), config("eulen_werkstatt_klasse")};
         } else if (z.werkstatt) {
             z.werkstatt->name  = text_von(daten, "name");
-            z.werkstatt->email = text_von(daten, "email");
+            z.werkstatt->email  = text_von(daten, "email");
+            z.werkstatt->klasse = text_von(daten, "klasse");
             config_setzen("eulen_werkstatt_name", z.werkstatt->name);
             config_setzen("eulen_werkstatt_email", z.werkstatt->email);
+            config_setzen("eulen_werkstatt_klasse", z.werkstatt->klasse);
         }
         antworten(browser, m, json::object());
         start_neu_laden();
@@ -770,6 +772,7 @@ void befehl_ausfuehren(wxWebView* browser, wxWindow* fenster, const json& m, con
             geheim_loeschen(DIENST_WERKSTATT);
             config_setzen("eulen_werkstatt_name", "");
             config_setzen("eulen_werkstatt_email", "");
+            config_setzen("eulen_werkstatt_klasse", "");
             z.werkstatt.reset();
         } else {
             geheim_loeschen(DIENST_KONTO);
