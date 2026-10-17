@@ -1,10 +1,21 @@
 # Jede Woche nachsehen, ob es eine neue Version von OrcaSlicer gibt. Wenn ja:
-# Pull Request, der orca.version hochsetzt – mit dem Ergebnis, ob alle Stellen
-# von skripte/anwenden.py noch passen. Nach dem Zusammenführen baut
-# „EulenSlicer bauen“ die neue Version (im Portal erst zurückgezogen, zum Testen).
+#
+#  1. Zweig orca-<Version> mit neuer orca.version und Pull Request dazu.
+#  2. „Prüfen“ auf diesem Zweig: Stellen von skripte/anwenden.py, Kern-Tests, Skripte, Installer.
+#  3. Alles grün: Pull Request zusammenführen und „EulenSlicer bauen“ starten. Die neue
+#     Version kommt zurückgezogen ins Portal – auf einem Rechner testen, dann unter
+#     3 Eulen → EulenSlicer → Versionen freigeben. Wie der Build ausgeht, steht danach als
+#     Kommentar im Pull Request.
+#     Etwas rot: Der Pull Request bleibt offen, mit dem Grund. Dann im Zweig anpassen und von
+#     Hand zusammenführen – das startet den Build wie bisher.
+#
+# Dazu vergleicht es die Tabelle der Filament-Profile für das Portal (skripte/filamente.py)
+# zwischen alter und neuer Version. Hat sie sich geändert, liegt die neue unter „Artifacts“
+# dieses Laufs, und der Pull Request sagt, was anders ist.
 #
 # Einmal einstellen: Settings → Actions → General → Workflow permissions →
 # „Allow GitHub Actions to create and approve pull requests“.
+# Nur Pull Request, nicht zusammenführen: Variable ORCA_AUTOMATISCH = nein.
 name: OrcaSlicer-Update
 
 on:
@@ -12,13 +23,25 @@ on:
     - cron: "17 5 * * 1" # montags 5:17 UTC
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
+
+concurrency:
+  group: orcaslicer-update
+  cancel-in-progress: false
 
 jobs:
   nachsehen:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      tun: ${{ steps.neu.outputs.tun }}
+      neu: ${{ steps.neu.outputs.neu }}
+      zweig: ${{ steps.neu.outputs.zweig }}
+      stellen: ${{ steps.pruefen.outputs.ergebnis }}
+      filamente: ${{ steps.filamente.outputs.ergebnis }}
+      pr: ${{ steps.pr.outputs.nummer }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -46,7 +69,7 @@ jobs:
             echo "tun=ja" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: OrcaSlicer ${{ steps.neu.outputs.neu }} holen (nur Quelltext)
+      - name: OrcaSlicer ${{ steps.neu.outputs.neu }} holen (Quelltext und Filament-Profile)
         if: steps.neu.outputs.tun == 'ja'
         uses: actions/checkout@v6
         with:
@@ -58,6 +81,20 @@ jobs:
           sparse-checkout: |
             src
             version.inc
+            resources/profiles/BBL/filament
+
+      - name: OrcaSlicer ${{ steps.neu.outputs.alt }} holen (nur Filament-Profile, zum Vergleich)
+        if: steps.neu.outputs.tun == 'ja'
+        continue-on-error: true # fehlt die alte Version, meldet der Vergleich „fehler“ statt alles anzuhalten
+        uses: actions/checkout@v6
+        with:
+          repository: OrcaSlicer/OrcaSlicer
+          ref: ${{ steps.neu.outputs.alt }}
+          path: orca-alt
+          lfs: false
+          fetch-depth: 1
+          sparse-checkout: |
+            resources/profiles/BBL/filament
 
       - name: Passen die Stellen noch?
         if: steps.neu.outputs.tun == 'ja'
@@ -69,14 +106,50 @@ jobs:
           cat pruefung.txt
           if [ $code -eq 0 ]; then echo "ergebnis=passt" >> "$GITHUB_OUTPUT"; else echo "ergebnis=passt nicht" >> "$GITHUB_OUTPUT"; fi
 
+      - name: Tabelle der Filament-Profile vergleichen
+        if: steps.neu.outputs.tun == 'ja'
+        id: filamente
+        env:
+          NEU: ${{ steps.neu.outputs.neu }}
+          ALT: ${{ steps.neu.outputs.alt }}
+        run: |
+          set +e
+          mkdir -p tabelle
+          if ! python3 eulen/skripte/filamente.py --orca orca --version "$NEU" > tabelle/orca-filamente.json 2> filamente.txt \
+             || ! python3 eulen/skripte/filamente.py --orca orca-alt --version "$ALT" > filamente-alt.json 2>> filamente.txt; then
+            echo "ergebnis=fehler" >> "$GITHUB_OUTPUT"
+            cat filamente.txt
+            exit 0
+          fi
+          python3 eulen/skripte/filamente.py --vergleichen filamente-alt.json tabelle/orca-filamente.json > filamente.txt
+          code=$?
+          cat filamente.txt
+          case $code in
+            0) echo "ergebnis=gleich" >> "$GITHUB_OUTPUT" ;;
+            1) echo "ergebnis=geaendert" >> "$GITHUB_OUTPUT" ;;
+            *) echo "ergebnis=fehler" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Neue Tabelle aufheben (unter „Artifacts“)
+        if: steps.filamente.outputs.ergebnis == 'geaendert'
+        uses: actions/upload-artifact@v7
+        with:
+          name: orca-filamente-${{ steps.neu.outputs.neu }}
+          path: tabelle/orca-filamente.json
+          retention-days: 90
+
       - name: Pull Request anlegen
         if: steps.neu.outputs.tun == 'ja'
+        id: pr
         env:
           GH_TOKEN: ${{ github.token }}
           NEU: ${{ steps.neu.outputs.neu }}
           ALT: ${{ steps.neu.outputs.alt }}
           ZWEIG: ${{ steps.neu.outputs.zweig }}
           ERGEBNIS: ${{ steps.pruefen.outputs.ergebnis }}
+          FILAMENTE: ${{ steps.filamente.outputs.ergebnis }}
+          AUTOMATISCH: ${{ vars.ORCA_AUTOMATISCH }}
+          LAUF: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         working-directory: eulen
         run: |
           git config user.name "github-actions[bot]"
@@ -100,6 +173,100 @@ jobs:
             cat ../pruefung.txt
             echo '```'
             echo
-            echo "Nach dem Zusammenführen baut „EulenSlicer bauen“ die neue Version. Sie kommt **zurückgezogen** ins Portal – erst testen, dann unter 3 Eulen → EulenSlicer → Versionen freigeben. Der erste Lauf baut die Abhängigkeiten neu (gut 1,5 Stunden)."
+            echo "### Filament-Profile für das Portal"
+            echo
+            case "$FILAMENTE" in
+              gleich)
+                echo "✅ Die Tabelle (\`skripte/filamente.py\`) ist gleich geblieben – im Repo 3ED-App ist nichts zu tun." ;;
+              geaendert)
+                echo "⚠️ Die Tabelle hat sich geändert. Vor dem Freigeben im Portal \`orca-filamente.json\` aus den [Artifacts dieses Laufs]($LAUF) als \`module/slicer/daten/orca-filamente.json\` ins Repo 3ED-App legen und das Modul „slicer“ neu hochladen."
+                echo
+                echo '```'
+                cat ../filamente.txt
+                echo '```' ;;
+              *)
+                echo "⚠️ Die Tabelle ließ sich nicht vergleichen – von Hand neu erzeugen (siehe README, „Neue Version von OrcaSlicer“)."
+                echo
+                echo '```'
+                cat ../filamente.txt
+                echo '```' ;;
+            esac
+            echo
+            echo "### Wie es weitergeht"
+            echo
+            if [ "${AUTOMATISCH,,}" = "nein" ]; then
+              echo "Automatisches Zusammenführen ist aus (Variable \`ORCA_AUTOMATISCH\`). Nach dem Zusammenführen von Hand baut „EulenSlicer bauen“ die neue Version."
+            else
+              echo "Gleich läuft „Prüfen“ auf diesem Zweig. Ist alles grün, wird dieser Pull Request automatisch zusammengeführt und „EulenSlicer bauen“ gestartet. Wenn nicht, bleibt er offen, und hier steht warum."
+            fi
+            echo
+            echo "Die neue Version kommt **zurückgezogen** ins Portal – erst auf einem Rechner testen, dann unter 3 Eulen → EulenSlicer → Versionen freigeben. Der erste Build mit einer neuen OrcaSlicer-Version baut die Abhängigkeiten neu (gut 1,5 Stunden)."
           } > ../beschreibung.md
-          gh pr create --title "OrcaSlicer $NEU" --body-file ../beschreibung.md --base main --head "$ZWEIG"
+          url=$(gh pr create --title "OrcaSlicer $NEU" --body-file ../beschreibung.md --base main --head "$ZWEIG")
+          echo "$url"
+          echo "nummer=${url##*/}" >> "$GITHUB_OUTPUT"
+
+  pruefen:
+    name: Prüfen (Zweig ${{ needs.nachsehen.outputs.zweig }})
+    needs: nachsehen
+    if: needs.nachsehen.outputs.tun == 'ja'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/pruefen.yml
+    with:
+      ref: ${{ needs.nachsehen.outputs.zweig }}
+
+  zusammenfuehren:
+    name: Zusammenführen und bauen
+    needs: [nachsehen, pruefen]
+    if: always() && needs.nachsehen.outputs.tun == 'ja' && needs.nachsehen.outputs.pr != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Zusammenführen und „EulenSlicer bauen“ starten
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.nachsehen.outputs.pr }}
+          NEU: ${{ needs.nachsehen.outputs.neu }}
+          ZWEIG: ${{ needs.nachsehen.outputs.zweig }}
+          PRUEFEN: ${{ needs.pruefen.result }}
+          AUTOMATISCH: ${{ vars.ORCA_AUTOMATISCH }}
+          PORTAL_API: ${{ vars.PORTAL_API }}
+          LAUF: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BAUEN: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/bauen.yml
+        run: |
+          kommentar() { gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body "$1"; }
+
+          if [ "${AUTOMATISCH,,}" = "nein" ]; then
+            echo "Automatisches Zusammenführen ist aus (Variable ORCA_AUTOMATISCH)."
+            exit 0
+          fi
+          if [ "$PRUEFEN" != "success" ]; then
+            kommentar "❌ „Prüfen“ ist auf diesem Zweig nicht durchgelaufen – Einzelheiten im [Lauf]($LAUF). Der Pull Request bleibt offen: im Zweig \`$ZWEIG\` anpassen (meist die Liste \`ERSETZUNGEN\` in \`skripte/anwenden.py\`), bis „Prüfen“ grün ist, dann von Hand zusammenführen. Das startet „EulenSlicer bauen“ (zurückgezogen)."
+            exit 0
+          fi
+
+          gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --squash --subject "OrcaSlicer $NEU" \
+            || gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --merge --subject "OrcaSlicer $NEU" \
+            || true
+          stand=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json state --jq .state)
+          if [ "$stand" != "MERGED" ]; then
+            kommentar "⚠️ „Prüfen“ ist grün, aber der Pull Request ließ sich nicht automatisch zusammenführen ([Lauf]($LAUF)). Bitte von Hand zusammenführen – das startet „EulenSlicer bauen“ (zurückgezogen)."
+            exit 1
+          fi
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ZWEIG" >/dev/null 2>&1 || true
+
+          if [ -z "$PORTAL_API" ]; then
+            kommentar "✅ „Prüfen“ grün, zusammengeführt. „EulenSlicer bauen“ ist noch nicht eingerichtet (Variable \`PORTAL_API\` fehlt) – deshalb kein Build. Siehe README, „Einmal einrichten“."
+            exit 0
+          fi
+          # Ein Zusammenführen mit dem Token von Actions löst selbst keinen Workflow aus –
+          # deshalb „EulenSlicer bauen“ ausdrücklich starten.
+          gh workflow run bauen.yml -R "$GITHUB_REPOSITORY" --ref main \
+            -f freigeben=false \
+            -f "notizen=OrcaSlicer $NEU – Änderungen: https://github.com/OrcaSlicer/OrcaSlicer/releases/tag/$NEU" \
+            -f "pr=$PR"
+          kommentar "✅ „Prüfen“ grün, automatisch zusammengeführt. [„EulenSlicer bauen“]($BAUEN) läuft jetzt (gut 1,5 Stunden) und lädt die neue Version **zurückgezogen** ins Portal. Wie der Build ausgeht, steht danach hier."

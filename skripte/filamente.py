@@ -15,6 +15,12 @@ Je Drucker (Modell aus BBL.json, Düse 0.4) alle Profile mit instantiation = tru
 compatible_printers „<Modell> 0.4 nozzle“ enthält. Schlüssel ist der Name vor „ @“; gibt es
 mehrere, gewinnt der ohne Düse im Namen. Nach einem Update von OrcaSlicer neu erzeugen und
 ins Repo 3ED-App kopieren.
+
+Zwei Tabellen vergleichen (macht „OrcaSlicer-Update“ bei jeder neuen Version):
+
+    python skripte/filamente.py --vergleichen alt.json neu.json
+
+Gibt die Unterschiede aus; Rückgabe 0 = gleich, 1 = geändert, 2 = Fehler.
 """
 
 from __future__ import annotations
@@ -26,11 +32,50 @@ import sys
 from pathlib import Path
 
 
+def vergleichen(alt_datei: str, neu_datei: str, zeilen_max: int = 60) -> int:
+    """Unterschiede zweier Tabellen ausgeben. 0 = gleich, 1 = geändert, 2 = Fehler."""
+    try:
+        alt = json.loads(Path(alt_datei).read_text(encoding="utf-8"))["drucker"]
+        neu = json.loads(Path(neu_datei).read_text(encoding="utf-8"))["drucker"]
+    except (OSError, ValueError, KeyError, TypeError) as fehler:
+        print(f"Tabelle nicht lesbar: {fehler}")
+        return 2
+    if alt == neu:
+        print("Keine Unterschiede.")
+        return 0
+    zeilen: list[str] = []
+    for drucker in sorted(set(alt) | set(neu)):
+        a, n = alt.get(drucker), neu.get(drucker)
+        if a is None:
+            zeilen.append(f"+ {drucker}: neuer Drucker ({len(n)} Profile)")
+            continue
+        if n is None:
+            zeilen.append(f"- {drucker}: Drucker fehlt jetzt")
+            continue
+        for sorte in sorted(set(a) | set(n)):
+            if sorte not in a:
+                zeilen.append(f"+ {drucker} / {sorte}: {n[sorte]}")
+            elif sorte not in n:
+                zeilen.append(f"- {drucker} / {sorte}: war {a[sorte]}")
+            elif a[sorte] != n[sorte]:
+                zeilen.append(f"~ {drucker} / {sorte}: {a[sorte]} → {n[sorte]}")
+    for zeile in zeilen[:zeilen_max]:
+        print(zeile)
+    if len(zeilen) > zeilen_max:
+        print(f"… und {len(zeilen) - zeilen_max} weitere")
+    return 1
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--orca", required=True, help="Checkout von OrcaSlicer (mit resources/profiles)")
+    ap.add_argument("--orca", help="Checkout von OrcaSlicer (mit resources/profiles)")
     ap.add_argument("--version", default="", help="Version von OrcaSlicer für die Tabelle (z. B. v2.4.2)")
+    ap.add_argument("--vergleichen", nargs=2, metavar=("ALT", "NEU"), help="zwei Tabellen vergleichen statt eine zu erzeugen")
     args = ap.parse_args()
+    if args.vergleichen:
+        sys.exit(vergleichen(*args.vergleichen))
+    if not args.orca:
+        ap.error("--orca fehlt")
 
     bbl = Path(args.orca) / "resources" / "profiles"
     vendor = json.loads((bbl / "BBL.json").read_text(encoding="utf-8"))

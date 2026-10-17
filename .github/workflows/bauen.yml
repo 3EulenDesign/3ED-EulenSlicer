@@ -4,7 +4,9 @@
 #  - von Hand: Actions → „EulenSlicer bauen“ → Run workflow (mit „freigeben“ und „Was ist neu?“),
 #  - bei einem Tag „v…“ (wird gleich freigegeben),
 #  - wenn sich auf main orca.version ändert (neue OrcaSlicer-Version; wird hochgeladen,
-#    aber zurückgezogen – im Portal zum Testen freigeben).
+#    aber zurückgezogen – im Portal zum Testen freigeben),
+#  - von „OrcaSlicer-Update“ nach dem automatischen Zusammenführen (ebenfalls zurückgezogen;
+#    das Ergebnis steht danach als Kommentar im Pull Request).
 #
 # Braucht unter Settings → Secrets and variables → Actions (Werte im Portal unter
 # 3 Eulen → EulenSlicer → GitHub):
@@ -30,6 +32,10 @@ on:
         description: "Nur bauen (Test): MSI unter Artifacts, nichts ins Portal – geht auch ohne Secrets"
         type: boolean
         default: false
+      pr:
+        description: "Pull Request für die Rückmeldung (setzt „OrcaSlicer-Update“, sonst leer lassen)"
+        type: string
+        default: ""
   push:
     tags: ["v*"]
     branches: [main]
@@ -186,3 +192,29 @@ jobs:
           if ($env:FREIGEBEN -ne 'true') { $argumente += '--nicht-freigeben' }
           python @argumente
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  melden:
+    name: Rückmeldung an den Pull Request
+    needs: bauen
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.pr != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Kommentar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          ERGEBNIS: ${{ needs.bauen.result }}
+          LAUF: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if ! [[ "$PR" =~ ^[0-9]+$ ]]; then echo "::error::pr muss eine Nummer sein: '$PR'"; exit 1; fi
+          case "$ERGEBNIS" in
+            success)
+              text="✅ [„EulenSlicer bauen“]($LAUF) ist fertig. Die neue Version liegt **zurückgezogen** im Portal: auf einem Rechner installieren und testen, dann unter 3 Eulen → EulenSlicer → Versionen freigeben. Erst dann holen sich die Slicer das Update." ;;
+            cancelled)
+              text="⏹️ [„EulenSlicer bauen“]($LAUF) wurde abgebrochen. Neu starten: Actions → EulenSlicer bauen → Run workflow (ohne „freigeben“)." ;;
+            *)
+              text="❌ [„EulenSlicer bauen“]($LAUF) ist fehlgeschlagen – im Portal ist keine neue Version. Einzelheiten im Lauf; nach der Korrektur neu starten: Actions → EulenSlicer bauen → Run workflow (ohne „freigeben“)." ;;
+          esac
+          gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body "$text"

@@ -58,7 +58,8 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
   msi.yml                    „MSI neu packen“: nur die MSI aus dem Programmordner eines Laufs (Minuten statt Stunden)
   kompilieren.yml            „Kompilieren“: übersetzt nur die geänderten Dateien (etwa 15 Minuten), bei jedem Push auf quellen/
   pruefen.yml                „Prüfen“: Kern-Test, Skripte, passen die Stellen zu OrcaSlicer?
-  upstream.yml               „OrcaSlicer-Update“: wöchentlich, Pull Request bei neuer OrcaSlicer-Version
+  upstream.yml               „OrcaSlicer-Update“: wöchentlich; bei neuer OrcaSlicer-Version Pull Request,
+                             Prüfen, automatisch zusammenführen und bauen (zurückgezogen)
 ```
 
 ### Was an OrcaSlicer geändert wird (`skripte/anwenden.py`)
@@ -136,9 +137,11 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
    | Secret | `PORTAL_ZUGANG` | `eulenslicer-build:xxxx xxxx …` aus Schritt 1 |
    | Secret | `SIGNATUR_SCHLUESSEL` | der private Schlüssel mit den Zeilen `BEGIN`/`END PRIVATE KEY` |
    | Variable (optional) | `BUILD_OFFSET` | Zahl, die zur Lauf-Nummer addiert wird (falls die Build-Nummern einmal neu anfangen müssen) |
+   | Variable (optional) | `ORCA_AUTOMATISCH` | `nein`: „OrcaSlicer-Update“ öffnet nur den Pull Request und führt ihn nicht selbst zusammen |
 
 3. *Settings → Actions → General → Workflow permissions:* „Allow GitHub Actions to create
-   and approve pull requests“ anhaken (für „OrcaSlicer-Update“).
+   and approve pull requests“ anhaken (für „OrcaSlicer-Update“). Ohne diesen Haken kann es
+   keinen Pull Request anlegen und damit auch nichts automatisch übernehmen.
 4. *Actions → EulenSlicer bauen → Run workflow.* Der erste Lauf baut die Abhängigkeiten von
    OrcaSlicer (gut 1,5 Stunden) und legt sie in den Zwischenspeicher, danach etwa eine Stunde.
    Die MSI liegt danach im Portal (*Versionen*) und 14 Tage unter *Artifacts* des Laufs.
@@ -155,6 +158,7 @@ nächste Version einmal von Hand installieren müssen.
 | *Run workflow* ohne „freigeben“ | zurückgezogen – erst testen, dann im Portal freigeben |
 | Tag `v…` pushen (z. B. `v2.4.2-3`) | freigegeben |
 | Push auf `main`, der `orca.version` ändert (neue OrcaSlicer-Version) | zurückgezogen |
+| „OrcaSlicer-Update“ nach dem automatischen Zusammenführen | zurückgezogen, Ergebnis als Kommentar im Pull Request |
 | *Run workflow* mit „Nur bauen“ | nichts – die MSI liegt nur unter *Artifacts* (Test, geht auch ohne Secrets) |
 
 „Was ist neu?“ kommt aus dem Feld beim Starten von Hand, sonst aus der Commit-Nachricht.
@@ -200,19 +204,32 @@ so ersetzt jede neue MSI die alte, auch über einen Versionssprung von OrcaSlice
 
 ## Neue Version von OrcaSlicer
 
-„OrcaSlicer-Update“ sieht montags nach. Gibt es eine neue Version, öffnet es einen Pull
-Request, der `orca.version` hochsetzt, und schreibt hinein, ob alle Stellen von
-`skripte/anwenden.py` noch passen. Passt etwas nicht: im Zweig die Liste `ERSETZUNGEN`
-anpassen (die neue Stelle im Quelltext von OrcaSlicer suchen), bis „Prüfen“ grün ist.
-Nach dem Zusammenführen baut „EulenSlicer bauen“ die neue Version (zurückgezogen) – auf
-einem Rechner testen, dann im Portal freigeben.
+„OrcaSlicer-Update“ sieht montags um 5:17 UTC nach (nur echte Releases, keine Betas).
+Gibt es eine neue Version:
 
-Von Hand: `orca.version` ändern, committen, pushen.
+1. Zweig `orca-<Version>` mit neuer `orca.version` und ein Pull Request dazu. Darin steht,
+   ob alle Stellen von `skripte/anwenden.py` noch passen und ob sich die Tabelle der
+   Filament-Profile geändert hat.
+2. „Prüfen“ läuft auf diesem Zweig (Stellen, Kern-Tests, Skripte, Installer).
+3. **Alles grün:** Der Pull Request wird automatisch zusammengeführt, und „EulenSlicer bauen“
+   startet. Die neue Version kommt **zurückgezogen** ins Portal; wie der Build ausgeht, steht
+   danach als Kommentar im Pull Request. Auf einem Rechner testen, dann unter
+   *3 Eulen → EulenSlicer → Versionen* freigeben – erst dann holen sich die Slicer das Update.
+4. **Etwas rot:** Der Pull Request bleibt offen, mit dem Grund. Im Zweig die Liste
+   `ERSETZUNGEN` anpassen (die neue Stelle im Quelltext von OrcaSlicer suchen), bis „Prüfen“
+   grün ist, dann von Hand zusammenführen – das startet „EulenSlicer bauen“ wie oben.
 
-Danach die Tabelle der Filament-Profile für das Portal neu erzeugen
-(`python skripte/filamente.py --orca <Checkout der neuen Version> --version <Tag>`) und
-als `module/slicer/daten/orca-filamente.json` ins Repo 3ED-App legen – sonst erben die
-Filamente aus dem Lager womöglich von Profilen, die es nicht mehr gibt.
+Mit der Variable `ORCA_AUTOMATISCH` = `nein` bleibt es beim Pull Request (Schritt 3 von Hand).
+Von Hand ganz ohne Pull Request: `orca.version` ändern, committen, pushen.
+
+**Filament-Profile für das Portal:** „OrcaSlicer-Update“ erzeugt die Tabelle
+(`skripte/filamente.py`) für alte und neue Version und vergleicht sie. Hat sie sich
+geändert, liegt die neue `orca-filamente.json` 90 Tage unter *Artifacts* des Laufs, und der
+Pull Request listet die Unterschiede. Dann vor dem Freigeben im Portal die Datei als
+`module/slicer/daten/orca-filamente.json` ins Repo 3ED-App legen und das Modul „slicer“
+neu hochladen – sonst erben die Filamente aus dem Lager womöglich von Profilen, die es
+nicht mehr gibt. Von Hand: `python skripte/filamente.py --orca <Checkout> --version <Tag>`,
+vergleichen mit `python skripte/filamente.py --vergleichen alt.json neu.json`.
 
 ## Lokal bauen (Windows)
 

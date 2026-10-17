@@ -4,12 +4,19 @@
 #  - Python-Skripte übersetzen,
 #  - passen alle Stellen von skripte/anwenden.py zur OrcaSlicer-Version in orca.version?
 #  - ist der Installer gültiges XML?
+# „OrcaSlicer-Update“ ruft es für den Zweig einer neuen OrcaSlicer-Version auf (workflow_call).
 name: Prüfen
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Zweig, Tag oder Commit, der geprüft wird (leer = der auslösende)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -21,6 +28,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           path: eulen
+          ref: ${{ inputs.ref }}
 
       - name: Version von OrcaSlicer
         id: orca
