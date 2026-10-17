@@ -372,6 +372,25 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "          m_html->SetPage(eulen_ueber_links()); // EulenSlicer: Portal und orcaslicer.com\n",
         1,
     ),
+    # Reiter „Gerät“: zusätzlich „Werkstatt“ mit den Druckern aus dem Portal (Seite „geraete“,
+    # Modul „slicer“ ab 1.5.0) – mit Portal gleich ausgewählt. Status, Speicher usw. für einen
+    # direkt verbundenen Drucker bleiben wie bei OrcaSlicer; angehängt, damit PT_STATUS … PT_HMS
+    # ihre Nummern behalten.
+    (
+        "src/slic3r/GUI/Monitor.cpp",
+        '#include "Tab.hpp"\n',
+        '#include "Tab.hpp"\n#include "EulenPortal.hpp" // EulenSlicer\n',
+        1,
+    ),
+    (
+        "src/slic3r/GUI/Monitor.cpp",
+        '    m_tabpanel->AddPage(m_hms_panel, _L("Assistant(HMS)"),    "", false);\n',
+        '    m_tabpanel->AddPage(m_hms_panel, _L("Assistant(HMS)"),    "", false);\n'
+        '    // EulenSlicer: Drucker der Werkstatt aus dem Portal\n'
+        '    if (wxWindow* werkstatt = eulen_geraete_seite(m_tabpanel))\n'
+        '        m_tabpanel->AddPage(werkstatt, wxString::FromUTF8("Werkstatt"), "", true);\n',
+        1,
+    ),
     # Neue Quelldateien bauen
     (
         "src/slic3r/CMakeLists.txt",

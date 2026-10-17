@@ -17,6 +17,10 @@ Anpassungen für 3 Eulen Design – gebaut für Windows als MSI:
   es im Portal ab und zeigt ein Fenster für Titel, Material, Farbe aus dem Lager, Anzahl,
   Termin und Notiz. Gedruckt wird erst nach der Freigabe im Auftrag; dann startet der
   Drucker-Agent in der Werkstatt den Druck. Direkt im LAN drucken geht weiterhin.
+- **Drucker der Werkstatt im Reiter „Gerät“:** Unter „Werkstatt“ (mit Portal gleich
+  ausgewählt) stehen alle Drucker aus dem Druckerstatus des Portals – was läuft,
+  Fortschritt, Restzeit, Fehler, Temperaturen und das AMS. „Status“, „Speicher“ usw. für
+  einen direkt im LAN verbundenen Drucker bleiben wie bei OrcaSlicer.
 - **Startseite und „Meine Aufträge“ aus dem Portal:** zuletzt geöffnete Projekte, eigene
   offene Aufträge mit Rückfragen, Drucker in der Werkstatt, Hinweise aus der Verwaltung.
   Ohne Verbindung zum Portal bleibt die normale Startseite.
@@ -77,6 +81,7 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
 | `src/slic3r/GUI/Plater.cpp` | Fenstertitel „… – EulenSlicer“ |
 | `src/slic3r/GUI/GUI_App.cpp` | nach dem Start `eulen_beim_start()` (Profile aus dem Portal) |
 | `src/slic3r/GUI/WebViewDialog.cpp` | Reiter „Start“: Seite aus dem Portal (`eulen_start_einrichten`), von dort nur Seiten des Portals (Links im Browser), Rückfall auf die normale Startseite bei Fehlern, Befehle `eulen_*` der Seite |
+| `src/slic3r/GUI/Monitor.cpp` | Reiter „Gerät“: zusätzlicher Reiter „Werkstatt“ (`eulen_geraete_seite()`, Seite „geraete“ aus dem Portal), mit Portal ausgewählt; angehängt, damit `PT_STATUS` … `PT_HMS` ihre Nummern behalten |
 | `src/slic3r/GUI/MainFrame.cpp`, `MainFrame.hpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und als Auswahl `eEulenSenden` des Knopfs „Drucken“ – mit Portal die Standardauswahl (`set_print_button_to_default`), auch ohne Slicen aktiv |
 | `src/libslic3r/AppConfig.cpp` | Login-Spalte von OrcaCloud auf der normalen Startseite standardmäßig aus |
 | `resources/images/` | Startbild und Symbole aus `bilder/` (auch Symbol der `.exe` und der MSI) |
@@ -93,8 +98,8 @@ eine Stelle, bricht das Skript mit „Stelle nicht gefunden“ ab – dann die L
 
 ### Brücke zu den Seiten des Portals
 
-Die Fenster „Start“, „An 3 Eulen senden“, „Meine Aufträge“ und „Anmelden“ zeigen Seiten aus
-dem Portal (`…/eulen/v1/slicer/seite/<name>`). Neue Funktionen dort kommen ohne neuen Build.
+Die Fenster „Start“, „An 3 Eulen senden“, „Meine Aufträge“ und „Anmelden“ und der Reiter
+„Werkstatt“ zeigen Seiten aus dem Portal (`…/eulen/v1/slicer/seite/<name>`). Neue Funktionen dort kommen ohne neuen Build.
 Die Seiten schicken `window.wx.postMessage({sequence_id, command, data})`, der Slicer
 antwortet mit `window.postMessage({sequence_id, command, data})` (bei Fehlern `ok: false`,
 `message`). Antworten bekommen nur Seiten unter `<PORTAL_API>slicer/seite/` (Prüfung in
@@ -128,6 +133,13 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
   `skripte/filamente.py --orca <Checkout> --version v2.4.2` aus den Profilen von OrcaSlicer.
   Nach einem Update von OrcaSlicer neu erzeugen und ins Repo 3ED-App
   (`module/slicer/daten/`) kopieren.
+- **Werkstatt im Reiter „Gerät“** (Modul ab 1.5.0): `EulenReiter` (Panel mit WebView) lädt
+  …/slicer/seite/geraete erst, wenn der Reiter zu sehen ist (`IsShownOnScreen()`, jede
+  Sekunde nachgesehen; vorher fragt er die Seite einmal ab – fehlt sie, weil das Modul älter
+  als 1.5.0 ist, steht ein Hinweis da), und meldet danach Wechsel mit `eulen_sichtbar` (`sichtbar`: true/false) –
+  so fragt die Seite im Hintergrund nicht im Portal nach. Nach einem Ladefehler versucht er es
+  alle 30 Sekunden, solange der Reiter zu sehen ist. `eulen_info` sagt dort `fenster: "reiter"`;
+  Anmeldung und Senden schicken auch ihr `eulen_neu_laden`.
 - **Normale Befehle der Startseite:** Von der Portal-Seite nimmt der Slicer nur die Befehle
   für zuletzt geöffnete Projekte, „Neues Projekt“ und „Projekt öffnen“ an; alles andere von
   OrcaSlicer (OrcaCloud, Anmelde-Zeitgeber) bleibt draußen.

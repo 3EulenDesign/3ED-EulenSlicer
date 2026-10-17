@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -24,9 +25,11 @@
 
 #include <wx/dialog.h>
 #include <wx/menu.h>
+#include <wx/panel.h>
 #include <wx/secretstore.h>
 #include <wx/sizer.h>
 #include <wx/stdpaths.h>
+#include <wx/timer.h>
 #include <wx/utils.h>
 #include <wx/weakref.h>
 #include <wx/webview.h>
@@ -309,12 +312,15 @@ kern::Parameter seiten_param(int auftrag = 0)
 // Reiter „Start“
 wxWeakRef<wxWebView> g_start;
 wxString             g_start_lokal;
+// Reiter „Gerät“ → „Werkstatt“ (Drucker der Werkstatt)
+wxWeakRef<wxWebView> g_geraete;
 
-// Die Startseite soll neu nachsehen (Anmeldung geändert, Auftrag gesendet).
+// Start und Werkstatt sollen neu nachsehen (Anmeldung geändert, Auftrag gesendet).
 void start_neu_laden()
 {
-    if (g_start && kern::ist_portal_seite(api(), into_u8(g_start->GetCurrentURL())))
-        skript(g_start.get(), "window.postMessage({\"command\":\"eulen_neu_laden\"})");
+    for (wxWebView* b : {g_start.get(), g_geraete.get()})
+        if (b != nullptr && kern::ist_portal_seite(api(), into_u8(b->GetCurrentURL())))
+            skript(b, "window.postMessage({\"command\":\"eulen_neu_laden\"})");
 }
 
 std::string fehlerseite()
@@ -324,6 +330,14 @@ std::string fehlerseite()
            "<h1 style=\"font-size:1.4rem;\">Das Portal ist gerade nicht erreichbar</h1>"
            "<p style=\"max-width:40rem;line-height:1.5;\">Prüfe die Internetverbindung und öffne das Fenster gleich noch einmal "
            "(Menü „3 Eulen“). Ohne Portal kannst du weiter slicen und direkt im LAN drucken.</p></body></html>";
+}
+
+// Einfache Seite mit Überschrift und Text (Reiter „Werkstatt“, wenn die Seite fehlt).
+std::string hinweisseite(const std::string& titel, const std::string& text)
+{
+    return "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><title>EulenSlicer</title></head>"
+           "<body style=\"font-family:'Segoe UI',system-ui,sans-serif;background:#F8FAFC;color:#1E2B38;margin:0;padding:3rem 2rem;\">"
+           "<h1 style=\"font-size:1.4rem;\">" + titel + "</h1><p style=\"max-width:40rem;line-height:1.5;\">" + text + "</p></body></html>";
 }
 
 // Fenster mit einer Seite des Portals (nicht modal, eines zur Zeit).
@@ -397,6 +411,145 @@ private:
 };
 
 wxWeakRef<EulenFenster> g_fenster;
+
+// Reiter „Werkstatt“ im Reiter „Gerät“ (MonitorPanel von OrcaSlicer): die Seite
+// …/slicer/seite/geraete mit den Druckern der Werkstatt. Geladen wird sie erst, wenn
+// sie zum ersten Mal zu sehen ist; danach sagt der Slicer ihr, ob sie zu sehen ist
+// (eulen_sichtbar), damit sie im Hintergrund nicht ständig im Portal nachfragt.
+class EulenReiter : public wxPanel
+{
+public:
+    explicit EulenReiter(wxWindow* parent) : wxPanel(parent, wxID_ANY)
+    {
+        auto* sizer = new wxBoxSizer(wxVERTICAL);
+        m_browser   = WebView::CreateWebView(this, wxEmptyString);
+        if (m_browser != nullptr) {
+            sizer->Add(m_browser, 1, wxEXPAND);
+            Bind(wxEVT_WEBVIEW_NAVIGATING, &EulenReiter::navigation, this, m_browser->GetId());
+            Bind(wxEVT_WEBVIEW_NEWWINDOW, &EulenReiter::neues_fenster, this, m_browser->GetId());
+            Bind(wxEVT_WEBVIEW_ERROR, &EulenReiter::ladefehler, this, m_browser->GetId());
+            Bind(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, &EulenReiter::nachricht, this, m_browser->GetId());
+            g_geraete = m_browser;
+        }
+        SetSizer(sizer);
+        m_takt.SetOwner(this);
+        Bind(wxEVT_TIMER, &EulenReiter::nachsehen, this, m_takt.GetId());
+        m_takt.Start(1000);
+    }
+
+    ~EulenReiter() override { m_takt.Stop(); }
+
+    // Ergebnis der Vorprüfung aus laden() (im Hauptfaden).
+    void geprueft(const std::string& url, bool da, unsigned status)
+    {
+        if (m_browser == nullptr)
+            return;
+        if (da) {
+            WebView::LoadUrl(m_browser, utf8(url));
+            return;
+        }
+        BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Werkstatt-Seite fehlt (HTTP " << status << ").";
+        if (status == 404) // Portal erreichbar, Seite nicht: Modul „EulenSlicer“ älter als 1.5.0
+            m_browser->SetPage(utf8(hinweisseite("Im Portal fehlt noch die Werkstatt-Seite",
+                                                 "Im Portal muss das Modul „EulenSlicer“ ab Version 1.5.0 laufen (3 Eulen → Module). "
+                                                 "Bis dahin zeigt „Status“ die Drucker, die dieser Rechner direkt im Netz erreicht.")),
+                               wxEmptyString);
+        else
+            m_browser->SetPage(utf8(fehlerseite()), wxEmptyString);
+        m_fehler      = true; // in 30 Sekunden noch einmal, solange der Reiter zu sehen ist
+        m_fehler_seit = std::chrono::steady_clock::now();
+    }
+
+private:
+    void laden()
+    {
+        m_geladen             = true;
+        m_dunkel              = wxGetApp().dark_mode();
+        const std::string url = kern::seiten_url(api(), "geraete", seiten_param());
+        // Erst nachsehen, ob es die Seite gibt – sonst stünde bei einem älteren Modul die
+        // Fehlermeldung der REST-API als Text im Reiter. Der Faden kennt nur die Adresse.
+        std::thread([url]() {
+            Antwort a;
+            try {
+                a = anfrage("GET", url, Kopf{}, std::string(), std::string(), 15, 6);
+            } catch (...) {
+                a.fehler = "Ausnahme";
+            }
+            const bool     da     = a.ok() && a.body.find("eulen-konfig") != std::string::npos;
+            const unsigned status = a.status;
+            wxGetApp().CallAfter([url, da, status]() {
+                wxWebView* b   = g_geraete.get();
+                auto*      ich = b != nullptr ? dynamic_cast<EulenReiter*>(b->GetParent()) : nullptr;
+                if (ich != nullptr)
+                    ich->geprueft(url, da, status);
+            });
+        }).detach();
+    }
+
+    // Jede Sekunde: ist der Reiter (samt „Gerät“ und Fenster) zu sehen?
+    void nachsehen(wxTimerEvent&)
+    {
+        if (m_browser == nullptr)
+            return;
+        const bool sichtbar = IsShownOnScreen();
+        // Nach einem Ladefehler höchstens alle 30 Sekunden neu versuchen (nur, wenn zu sehen).
+        if (m_fehler) {
+            m_sichtbar = sichtbar;
+            if (sichtbar && std::chrono::steady_clock::now() - m_fehler_seit >= std::chrono::seconds(30)) {
+                m_fehler = false;
+                laden();
+            }
+            return;
+        }
+        if (sichtbar == m_sichtbar)
+            return;
+        m_sichtbar        = sichtbar;
+        const bool portal = kern::ist_portal_seite(api(), into_u8(m_browser->GetCurrentURL()));
+        if (sichtbar && (!m_geladen || !portal || wxGetApp().dark_mode() != m_dunkel)) {
+            laden(); // zum ersten Mal oder nach dem Wechsel hell/dunkel
+        } else if (m_geladen && portal) {
+            skript(m_browser, std::string("window.postMessage({\"command\":\"eulen_sichtbar\",\"data\":{\"sichtbar\":") +
+                                  (sichtbar ? "true" : "false") + "}})");
+        }
+    }
+
+    void navigation(wxWebViewEvent& evt)
+    {
+        const std::string ziel = into_u8(evt.GetURL());
+        if (kern::ist_portal_seite(api(), ziel) || ziel.rfind("data:", 0) == 0 || ziel == "about:blank" || ziel.empty())
+            return;
+        evt.Veto();
+        if (kern::ist_http(ziel))
+            wxLaunchDefaultBrowser(utf8(ziel));
+    }
+
+    void neues_fenster(wxWebViewEvent& evt)
+    {
+        const std::string ziel = into_u8(evt.GetURL());
+        if (kern::ist_http(ziel))
+            wxLaunchDefaultBrowser(utf8(ziel));
+    }
+
+    void ladefehler(wxWebViewEvent& evt)
+    {
+        if (evt.GetInt() == wxWEBVIEW_NAV_ERR_USER_CANCELLED || !kern::ist_portal_seite(api(), into_u8(evt.GetURL())))
+            return;
+        BOOST_LOG_TRIVIAL(warning) << "EulenSlicer: Werkstatt-Seite nicht erreichbar: " << into_u8(evt.GetURL());
+        m_browser->SetPage(utf8(fehlerseite()), wxEmptyString);
+        m_fehler      = true;
+        m_fehler_seit = std::chrono::steady_clock::now();
+    }
+
+    void nachricht(wxWebViewEvent& evt) { eulen_web_nachricht(m_browser, evt.GetString(), this); }
+
+    wxWebView*                            m_browser  = nullptr;
+    wxTimer                               m_takt;
+    bool                                  m_sichtbar = false;
+    bool                                  m_geladen  = false;
+    bool                                  m_dunkel   = false;
+    bool                                  m_fehler   = false;
+    std::chrono::steady_clock::time_point m_fehler_seit;
+};
 
 /*
  * Senden: speichern, in Stücken ablegen
@@ -802,7 +955,7 @@ json info_json(wxWindow* fenster)
     j["rechner"] = into_u8(wxGetHostName());
     j["version"] = EULEN_ORCA_VERSION;
     j["build"]   = EULEN_BUILD;
-    j["fenster"] = fenster != nullptr ? "dialog" : "start";
+    j["fenster"] = dynamic_cast<EulenReiter*>(fenster) != nullptr ? "reiter" : fenster != nullptr ? "dialog" : "start";
     j["dunkel"]  = wxGetApp().dark_mode();
     j["auftrag"] = auftrag;
     return j;
@@ -1150,6 +1303,13 @@ wxMenu* eulen_menue(wxWindow* fenster)
                      },
                      "", fenster, aktiv, fenster);
     return menu;
+}
+
+wxWindow* eulen_geraete_seite(wxWindow* parent)
+{
+    if (!eulen_portal_aktiv() || parent == nullptr)
+        return nullptr;
+    return new EulenReiter(parent);
 }
 
 void eulen_beim_start()
