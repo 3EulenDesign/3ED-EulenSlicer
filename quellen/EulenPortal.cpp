@@ -5,6 +5,7 @@
 #include "EulenUpdater.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -531,6 +532,9 @@ struct ProfilErgebnis
 {
     int         neu = 0, geaendert = 0, entfernt = 0, belegt = 0;
     std::string fehler;
+    // Drucker aus dem Portal: Modell von OrcaSlicer („Bambu Lab P1S“) und Düse („0.4“).
+    std::vector<std::pair<std::string, std::string>> drucker;
+    std::string drucker_text; // was eingerichtet wurde (leer = nichts Neues)
 };
 
 std::atomic<bool> g_profile_laeuft{false};
@@ -583,6 +587,82 @@ void presets_neu_laden(const std::string& user, bool neustart_noetig)
         hinweis("Profile aus dem Portal wurden geändert – sie gelten nach dem nächsten Start des EulenSlicers.");
 }
 
+// Antwort von GET /slicer/api/drucker: nur Modelle von Bambu Lab mit bekannter Düse.
+std::vector<std::pair<std::string, std::string>> drucker_lesen(const std::string& body)
+{
+    std::vector<std::pair<std::string, std::string>> out;
+    const json j = json_lesen(body);
+    if (!j.is_object() || !j.contains("drucker") || !j["drucker"].is_array())
+        return out;
+    static const std::set<std::string> duesen = {"0.2", "0.4", "0.6", "0.8"};
+    for (const auto& d : j["drucker"]) {
+        const std::string modell = text_von(d, "modell");
+        const std::string duese  = text_von(d, "duese");
+        const bool        sauber = modell.size() < 40 && modell.rfind("Bambu Lab ", 0) == 0 &&
+                            std::all_of(modell.begin(), modell.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == ' '; });
+        if (sauber && duesen.count(duese) && std::find(out.begin(), out.end(), std::make_pair(modell, duese)) == out.end())
+            out.emplace_back(modell, duese);
+    }
+    return out;
+}
+
+// Drucker der Werkstatt wie mit dem Einrichtungsassistenten hinzufügen (Hersteller „BBL“,
+// Modell, Düse). Gibt true zurück, wenn die Profile dabei neu geladen wurden. Was schon
+// eingerichtet ist, bleibt; entfernt wird nichts.
+bool drucker_anwenden(const std::vector<std::pair<std::string, std::string>>& drucker, std::string& text)
+{
+    GUI_App& app = wxGetApp();
+    if (drucker.empty() || app.preset_bundle == nullptr || app.app_config == nullptr || app.mainframe == nullptr)
+        return false;
+    if (!fs::exists(fs::path(resources_dir()) / "profiles" / "BBL.json")) {
+        hinweis("Die Profile von Bambu Lab fehlen in dieser Installation (resources\\profiles\\BBL.json) – bitte den EulenSlicer neu installieren.");
+        return false;
+    }
+    const AppConfig::VendorMap& vorhanden = app.app_config->vendors();
+    AppConfig::VendorMap        neu;
+    std::vector<std::string>    namen;
+    for (const auto& [modell, duese] : drucker) {
+        const auto v  = vorhanden.find("BBL");
+        const bool da = v != vorhanden.end() && v->second.count(modell) && v->second.at(modell).count(duese);
+        if (!da) {
+            neu["BBL"][modell].insert(duese);
+            namen.push_back(modell + " (" + duese + " mm)");
+        }
+    }
+    if (neu.empty())
+        return false;
+    PresetBundle* pb = app.preset_bundle;
+    if (pb->prints.current_is_dirty() || pb->filaments.current_is_dirty() || pb->printers.current_is_dirty()) {
+        hinweis("Drucker aus dem Portal werden beim nächsten Start eingerichtet (gerade sind Änderungen an Profilen offen).");
+        return false;
+    }
+    // Ist noch kein richtiger Drucker eingerichtet oder kommen die Bambu-Drucker zum ersten
+    // Mal dazu, gleich den ersten aus dem Portal wählen.
+    const auto  bbl      = vorhanden.find("BBL");
+    const bool  erstmals = bbl == vorhanden.end() || bbl->second.empty();
+    std::string modell, variante;
+    if (erstmals || pb->printers.only_default_printers()) {
+        modell   = drucker.front().first;
+        variante = drucker.front().second;
+    }
+    try {
+        if (!pb->apply_vendor_config(neu, {}, app.app_config, false, modell, variante)) {
+            hinweis("Die Drucker aus dem Portal ließen sich nicht einrichten (Profile von Bambu Lab nicht gefunden).");
+            return false;
+        }
+        app.load_current_presets();
+    } catch (const std::exception& ex) {
+        BOOST_LOG_TRIVIAL(error) << "EulenSlicer: Drucker einrichten: " << ex.what();
+        hinweis(std::string("Die Drucker aus dem Portal ließen sich nicht einrichten: ") + ex.what());
+        return false;
+    }
+    text = "Drucker aus dem Portal eingerichtet: ";
+    for (size_t i = 0; i < namen.size(); ++i)
+        text += (i ? ", " : "") + namen[i];
+    text += ".";
+    return true;
+}
+
 // Abgleich im Hintergrund; fertig läuft danach im Hauptfaden.
 void profile_abgleichen(std::function<void(const ProfilErgebnis&)> fertig)
 {
@@ -608,6 +688,10 @@ void profile_abgleichen(std::function<void(const ProfilErgebnis&)> fertig)
     std::thread([fertig, user, ordner, kopf, basis]() {
         ProfilErgebnis e;
         try {
+            // Erst die Drucker der Werkstatt (Modul ab 1.3.0; ältere antworten mit 404 – dann ohne).
+            Antwort dr = anfrage("GET", basis + "drucker", kopf);
+            if (dr.ok())
+                e.drucker = drucker_lesen(dr.body);
             Antwort a = anfrage("GET", basis + "profile", kopf);
             if (!a.ok()) {
                 e.fehler = fehler_von(a);
@@ -676,9 +760,12 @@ void profile_abgleichen(std::function<void(const ProfilErgebnis&)> fertig)
         } catch (const std::exception& ex) {
             e.fehler = std::string("Abgleich der Profile fehlgeschlagen: ") + ex.what();
         }
-        wxGetApp().CallAfter([fertig, e, user]() {
+        wxGetApp().CallAfter([fertig, e, user]() mutable {
             g_profile_laeuft = false;
-            if (e.neu > 0 || e.geaendert + e.entfernt > 0)
+            // Drucker zuerst: Profile aus dem Portal erben oft von den Profilen von Bambu Lab.
+            // apply_vendor_config() lädt dabei alle Profile neu, auch die eigenen.
+            const bool neu_geladen = drucker_anwenden(e.drucker, e.drucker_text);
+            if (!neu_geladen && (e.neu > 0 || e.geaendert + e.entfernt > 0))
                 presets_neu_laden(user, e.geaendert + e.entfernt > 0);
             fertig(e);
         });
@@ -816,13 +903,15 @@ void befehl_ausfuehren(wxWebView* browser, wxWindow* fenster, const json& m, con
         const int  nr            = wartend_merken(browser);
         const json anfrage_kopie = m;
         profile_abgleichen([nr, anfrage_kopie](const ProfilErgebnis& e) {
+            if (!e.drucker_text.empty())
+                hinweis(e.drucker_text);
             wxWebView* ziel = wartend_holen(nr);
             if (ziel == nullptr)
                 return;
             if (!e.fehler.empty() && e.neu + e.geaendert + e.entfernt == 0)
                 antworten(ziel, anfrage_kopie, json::object(), e.fehler);
             else
-                antworten(ziel, anfrage_kopie, json{{"neu", e.neu}, {"geaendert", e.geaendert}, {"entfernt", e.entfernt}, {"belegt", e.belegt}});
+                antworten(ziel, anfrage_kopie, json{{"neu", e.neu}, {"geaendert", e.geaendert}, {"entfernt", e.entfernt}, {"belegt", e.belegt}, {"drucker", e.drucker_text}});
         });
     } else if (befehl == "eulen_update") {
         antworten(browser, m, json::object());
@@ -1023,6 +1112,8 @@ void eulen_senden()
 void eulen_profile_abgleichen(bool vom_nutzer)
 {
     profile_abgleichen([vom_nutzer](const ProfilErgebnis& e) {
+        if (!e.drucker_text.empty())
+            hinweis(e.drucker_text);
         const bool etwas = e.neu + e.geaendert + e.entfernt > 0;
         if (!e.fehler.empty() && !etwas) {
             if (vom_nutzer)

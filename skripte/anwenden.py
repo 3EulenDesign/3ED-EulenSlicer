@@ -210,13 +210,68 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "            if (eulen_portal_aktiv()) {\n"
         "                SideButton* eulen_btn = new SideButton(p, wxString::FromUTF8(\"An 3 Eulen senden\"), \"\");\n"
         "                eulen_btn->SetCornerRadius(0);\n"
-        "                eulen_btn->Bind(wxEVT_BUTTON, [p](wxCommandEvent&) {\n"
+        "                eulen_btn->Bind(wxEVT_BUTTON, [this, p](wxCommandEvent&) {\n"
+        "                    m_print_btn->SetLabel(wxString::FromUTF8(\"An 3 Eulen senden\"));\n"
+        "                    m_print_select = eEulenSenden;\n"
+        "                    m_print_enable = get_enable_print_status();\n"
+        "                    m_print_btn->Enable(m_print_enable);\n"
+        "                    this->Layout();\n"
+        "                    fit_tab_labels();\n"
         "                    p->Dismiss();\n"
-        "                    wxGetApp().CallAfter([] { eulen_senden(); });\n"
         "                });\n"
         "                p->append_button(eulen_btn);\n"
         "            }\n"
         "            p->Popup(m_print_btn);\n",
+        1,
+    ),
+    # „An 3 Eulen senden“ als Auswahl des Knopfs „Drucken“ – und als Standard, wenn das Portal
+    # eingerichtet ist. Geht auch ungeslicet (dann das ganze Projekt).
+    (
+        "src/slic3r/GUI/MainFrame.hpp",
+        "        ePrintMultiMachine   = 9\n    };\n",
+        "        ePrintMultiMachine   = 9,\n        eEulenSenden         = 50 // EulenSlicer: ans 3 Eulen Portal\n    };\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        "    m_print_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent& event)\n        {\n",
+        "    m_print_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent& event)\n        {\n"
+        "            if (m_print_select == eEulenSenden) { // EulenSlicer\n"
+        "                wxGetApp().CallAfter([] { eulen_senden(); });\n"
+        "                return;\n"
+        "            }\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        "    else if (m_print_select == ePrintMultiMachine)\n    {\n        if (!current_plate->is_slice_result_ready_for_print())\n",
+        "    else if (m_print_select == eEulenSenden) // EulenSlicer: auch ungeslicet, nur nicht leer\n"
+        "    {\n"
+        "        enable = m_plater != nullptr && !m_plater->model().objects.empty();\n"
+        "    }\n"
+        "    else if (m_print_select == ePrintMultiMachine)\n    {\n        if (!current_plate->is_slice_result_ready_for_print())\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        "    if (!can_print)\n        enable_print = false;\n",
+        "    if (!can_print && m_print_select != eEulenSenden) // EulenSlicer: Senden braucht kein Slicen\n        enable_print = false;\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        "void MainFrame::set_print_button_to_default(PrintSelectType select_type)\n{\n",
+        "void MainFrame::set_print_button_to_default(PrintSelectType select_type)\n{\n"
+        "    // EulenSlicer: Mit Portal ist „An 3 Eulen senden“ die Standardauswahl.\n"
+        "    if (eulen_portal_aktiv()) {\n"
+        "        m_print_btn->SetLabel(wxString::FromUTF8(\"An 3 Eulen senden\"));\n"
+        "        m_print_select = eEulenSenden;\n"
+        "        m_print_enable = get_enable_print_status();\n"
+        "        m_print_btn->Enable(m_print_enable);\n"
+        "        this->Layout();\n"
+        "        fit_tab_labels();\n"
+        "        return;\n"
+        "    }\n",
         1,
     ),
     # Login-Spalte von OrcaCloud auf der normalen Startseite ausblenden (Anmelden geht übers Portal).

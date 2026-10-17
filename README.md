@@ -71,7 +71,7 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
 | `src/slic3r/GUI/Plater.cpp` | Fenstertitel „… – EulenSlicer“ |
 | `src/slic3r/GUI/GUI_App.cpp` | nach dem Start `eulen_beim_start()` (Profile aus dem Portal) |
 | `src/slic3r/GUI/WebViewDialog.cpp` | Reiter „Start“: Seite aus dem Portal (`eulen_start_einrichten`), von dort nur Seiten des Portals (Links im Browser), Rückfall auf die normale Startseite bei Fehlern, Befehle `eulen_*` der Seite |
-| `src/slic3r/GUI/MainFrame.cpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und in der Auswahl neben „Drucken“ |
+| `src/slic3r/GUI/MainFrame.cpp`, `MainFrame.hpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und als Auswahl `eEulenSenden` des Knopfs „Drucken“ – mit Portal die Standardauswahl (`set_print_button_to_default`), auch ohne Slicen aktiv |
 | `src/libslic3r/AppConfig.cpp` | Login-Spalte von OrcaCloud auf der normalen Startseite standardmäßig aus |
 | `resources/images/` | Startbild und Symbole aus `bilder/` (auch Symbol der `.exe` und der MSI) |
 | `src/slic3r/Utils/Http.cpp`, `Http.hpp` | `Http::follow_redirects(bool)` – Anfragen ans Portal folgen keinen Weiterleitungen (sonst ginge der Zugang im Kopf `X-Api-Key` an das neue Ziel) |
@@ -105,6 +105,12 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
   überschrieben). Profile mit Nachbearbeitungs-Skripten (`post_process`) lehnt der Slicer ab.
   Neue Profile erscheinen sofort, geänderte und gelöschte nach dem nächsten Start (OrcaSlicer
   lädt geladene Profile nicht neu); sind gerade Profile ungespeichert geändert, auch die neuen.
+- **Drucker der Werkstatt:** `GET …/slicer/api/drucker` (Modul ab 1.3.0) liefert die
+  Modelle von Bambu Lab mit Düse (aus Druckerstatus und Druckaufträgen). Fehlen sie in
+  `vendors` der AppConfig, richtet der Slicer sie mit `PresetBundle::apply_vendor_config()`
+  ein wie der Assistent (Hersteller „BBL“, passende Filamente kommen mit) und wählt beim
+  ersten Mal den ersten. Läuft mit dem Abgleich der Profile (beim Start, nach dem Anmelden,
+  Menü „3 Eulen“ → „Profile aus dem Portal holen“), entfernt nichts.
 - **Normale Befehle der Startseite:** Von der Portal-Seite nimmt der Slicer nur die Befehle
   für zuletzt geöffnete Projekte, „Neues Projekt“ und „Projekt öffnen“ an; alles andere von
   OrcaSlicer (OrcaCloud, Anmelde-Zeitgeber) bleibt draußen.
@@ -171,8 +177,10 @@ so ersetzt jede neue MSI die alte, auch über einen Versionssprung von OrcaSlice
   Konto: „Ohne Konto (Werkstatt)“ mit dem Code aus dem Aushang. Abmelden widerruft den Zugang
   im Portal. Der alte Weg über den Druck-Host (Zugang im *Interner Bereich → EulenSlicer*,
   Host-Typ „Octo/Klipper“) geht weiterhin.
-- **Senden:** „An 3 Eulen senden“ in der Auswahl neben „Drucken“, im Menü „3 Eulen“ oder auf
-  der Startseite. Ist die Platte geslicet, geht die Druckdatei mit; sonst das Modell.
+- **Senden:** „An 3 Eulen senden“ ist die Standardauswahl des Knopfs „Drucken“ (andere wie
+  „Platte drucken“ über den Pfeil daneben), dazu im Menü „3 Eulen“ und auf der Startseite. Ist die Platte geslicet, geht die Druckdatei mit; sonst das Modell.
+- **Drucker:** Die Drucker von Bambu Lab aus dem Portal richtet der EulenSlicer nach dem
+  Anmelden selbst ein (Hinweis unten rechts); „Drucker hinzufügen“ braucht es dafür nicht.
 - **Updates:** Beim Start fragt der EulenSlicer `…/eulen/v1/slicer/update?build=<eigener>`.
   Ist im Portal ein neuerer Build freigegeben, bietet er ihn an. „Ja“ lädt die MSI über einen
   Link, der 30 Minuten gilt, prüft Größe, SHA-256 und die Ed25519-Signatur mit dem
