@@ -330,6 +330,48 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "\tm_HyperTextColorHover = m_is_dark ? ImVec4(198.f / 255.f, 219.f / 255.f, 242.f / 255.f, 1) : ImVec4(106.f / 255.f, 133.f / 255.f, 160.f / 255.f, 1); // EulenSlicer: #C6DBF2 / #6A85A0\n",
         1,
     ),
+    # Name in Fenstertiteln und Meldungen („Über EulenSlicer“, „EulenSlicer - Info“ …). Nur
+    # Anzeige: Datenordner, Konfiguration und Link-Schema hängen an SLIC3R_APP_KEY bzw. SetAppName.
+    (
+        "src/libslic3r/libslic3r.h",
+        '#define SLIC3R_APP_FULL_NAME "Orca Slicer"\n',
+        '#define SLIC3R_APP_FULL_NAME "EulenSlicer" // EulenSlicer (nur Anzeige)\n',
+        1,
+    ),
+    # „Über EulenSlicer“: Kopf mit Eule (bilder/OrcaSlicer_about*.svg), Build des EulenSlicers,
+    # eigene Absätze, Links zum Portal. Das Copyright von OrcaSlicer und „Informationen zum
+    # Urheberrecht“ bleiben (AGPL); unsere Zeile steht darüber.
+    (
+        "src/slic3r/GUI/AboutDialog.cpp",
+        '#include "AboutDialog.hpp"\n',
+        '#include "AboutDialog.hpp"\n#include "EulenPortal.hpp" // EulenSlicer\n',
+        1,
+    ),
+    (
+        "src/slic3r/GUI/AboutDialog.cpp",
+        'wxString::Format("Build %s", std::string(GIT_COMMIT_HASH))',
+        'wxString::Format(wxString::FromUTF8("Build %d · OrcaSlicer %s"), EULEN_BUILD, std::string(GIT_COMMIT_HASH))',
+        1,
+    ),
+    (
+        "src/slic3r/GUI/AboutDialog.cpp",
+        "    text_sizer->Add( 0, 0, 0, wxTOP, FromDIP(33));\n",
+        "    text_list = eulen_ueber_texte(); // EulenSlicer: eigene Absätze\n"
+        "    text_sizer->Add( 0, 0, 0, wxTOP, FromDIP(33));\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/AboutDialog.cpp",
+        'wxStaticText *html_text = new wxStaticText(this, wxID_ANY, "Copyright(C) ',
+        'wxStaticText *html_text = new wxStaticText(this, wxID_ANY, eulen_ueber_copyright() + "Copyright(C) ',
+        1,
+    ),
+    (
+        "src/slic3r/GUI/AboutDialog.cpp",
+        "          m_html->SetPage(text);\n",
+        "          m_html->SetPage(eulen_ueber_links()); // EulenSlicer: Portal und orcaslicer.com\n",
+        1,
+    ),
     # Neue Quelldateien bauen
     (
         "src/slic3r/CMakeLists.txt",

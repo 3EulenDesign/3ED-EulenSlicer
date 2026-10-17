@@ -1158,5 +1158,38 @@ void eulen_beim_start()
         eulen_profile_abgleichen(false);
 }
 
+/*
+ * Fenster „Über EulenSlicer“
+ * ----------------------------------------------------------------------- */
+
+std::vector<wxString> eulen_ueber_texte()
+{
+    return {
+        utf8("Der EulenSlicer ist der Slicer von 3 Eulen Design. Er verbindet OrcaSlicer mit dem 3 Eulen Portal: "
+             "im Browser anmelden, Projekte als Druckauftrag senden, Drucker, Profile und Filamente aus dem Lager "
+             "übernehmen und Updates aus dem Portal installieren."),
+        utf8("Er basiert auf OrcaSlicer " EULEN_ORCA_VERSION ". OrcaSlicer steht in einer langen Reihe freier Slicer: "
+             "Slic3r von Alessandro Ranellucci und der RepRap-Gemeinschaft legte den Grundstein, PrusaSlicer von "
+             "Prusa Research, Bambu Studio und SuperSlicer führten die Arbeit fort. Danke an alle, die daran "
+             "mitgewirkt haben."),
+        utf8("Wie OrcaSlicer ist der EulenSlicer freie Software unter der GNU Affero General Public License, "
+             "Version 3. Welche Bibliotheken anderer er enthält, steht unter „Informationen zum Urheberrecht“."),
+    };
+}
+
+wxString eulen_ueber_copyright() { return utf8("EulenSlicer – Anpassungen von 3 Eulen Design\n"); }
+
+wxString eulen_ueber_links()
+{
+    std::string links;
+    const std::string o = eulen_portal_aktiv() ? kern::ursprung(api()) : std::string();
+    if (!o.empty()) {
+        std::string host = o.substr(o.find("://") == std::string::npos ? 0 : o.find("://") + 3);
+        links += "<a style=\"color:#50708F\" href=\"" + o + "/\">" + host + "</a> &nbsp;&middot;&nbsp; ";
+    }
+    links += "<a style=\"color:#50708F\" href=\"https://www.orcaslicer.com\">orcaslicer.com</a>";
+    return utf8("<html><body><p style=\"text-align:left\">" + links + "</p></body></html>");
+}
+
 } // namespace GUI
 } // namespace Slic3r

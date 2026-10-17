@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <wx/string.h>
 
@@ -59,6 +60,12 @@ wxMenu* eulen_menue(wxWindow* fenster);
 
 // Einmal nach dem Start (mit der Update-Prüfung): Profile abgleichen.
 void eulen_beim_start();
+
+// Fenster „Über EulenSlicer“ (AboutDialog von OrcaSlicer): eigene Absätze, eine Zeile über
+// dem Copyright von OrcaSlicer (das bleibt stehen, AGPL) und die Links darunter (HTML).
+std::vector<wxString> eulen_ueber_texte();
+wxString eulen_ueber_copyright();
+wxString eulen_ueber_links();
 
 } // namespace GUI
 } // namespace Slic3r

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Bilder des EulenSlicers erzeugen: Startbild (Splash), App-Symbol, Symbole in allen Größen.
+"""Bilder des EulenSlicers erzeugen: Startbild (Splash), App-Symbol, Symbole in allen Größen,
+Kopf von „Über EulenSlicer“.
 
     python skripte/bilder.py            # schreibt nach bilder/
 
@@ -24,6 +25,7 @@ from pathlib import Path
 HIER = Path(__file__).resolve().parent.parent
 ZIEL = HIER / "bilder"
 SCHRIFT = Path("/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf")
+SCHRIFT_MITTEL = Path("/usr/share/fonts/truetype/google-fonts/Poppins-Medium.ttf")  # Zeile unter dem Schriftzug
 
 # Farben aus drei-eulen/style.css
 HELL = {
@@ -129,19 +131,19 @@ def eule(farbe, f, wach=True, transform=""):
 # Schriftzug als Pfad
 # --------------------------------------------------------------------------
 
-def schriftzug(teile, groesse, mitte_x, grundlinie):
-    """teile = [(text, farbe), …] → (SVG, Breite). Zentriert um mitte_x."""
+def schriftzug(teile, groesse, mitte_x, grundlinie, schrift=SCHRIFT, links=None):
+    """teile = [(text, farbe), …] → (SVG, Breite). Zentriert um mitte_x (oder linksbündig ab links)."""
     from fontTools.pens.svgPathPen import SVGPathPen
     from fontTools.pens.transformPen import TransformPen
     from fontTools.ttLib import TTFont
 
-    font = TTFont(str(SCHRIFT))
+    font = TTFont(str(schrift))
     glyphen = font.getGlyphSet()
     cmap = font.getBestCmap()
     upm = font["head"].unitsPerEm
     mass = groesse / upm
     breite = sum(font["hmtx"][cmap[ord(c)]][0] for text, _ in teile for c in text) * mass
-    x = mitte_x - breite / 2
+    x = mitte_x - breite / 2 if links is None else links
     svg = ""
     for text, farbe in teile:
         pen = SVGPathPen(glyphen, ntos=lambda v: f"{v:.2f}")
@@ -174,6 +176,20 @@ def splash(f):
     )
     text, _ = schriftzug([("Eulen", f["ink"]), ("Slicer", f["akzent"])], 46, 240, 322)
     return f'<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">{szene}{text}</svg>'
+
+
+def ueber(f):
+    """560 × 125 für „Über EulenSlicer“ (ersetzt OrcaSlicer_about*.svg): Eule auf der Kachel,
+    „EulenSlicer“ und „3 Eulen Design“, unten eine blaue Linie. Rechts bleibt frei – dort
+    schreibt der Dialog die Version hin."""
+    kachel = '<rect x="20" y="21.22" width="80.56" height="80.56" rx="9.64" ry="9.64" fill="#E3ECF3"/>'
+    s = 80.56 / 64
+    owl = eule(HELL["owl_b"], HELL, wach=True, transform=f"translate({20 + 40.28:.2f} {21.22 + 58 * s:.2f}) scale({0.5 * s:.4f})")
+    name, _ = schriftzug([("Eulen", f["ink"]), ("Slicer", f["akzent"])], 40, 0, 68, links=120)
+    unter, _ = schriftzug([("3 Eulen Design", f["unter"])], 16, 0, 92, schrift=SCHRIFT_MITTEL, links=121)
+    linie = f'<rect x="20" y="123" width="520" height="2" fill="{f["linie"]}"/>'
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="560" height="125" viewBox="0 0 560 125">'
+            f"{linie}{kachel}{owl}{name}{unter}</svg>")
 
 
 def symbol(kachel=True, grau=False):
@@ -223,8 +239,9 @@ def main() -> None:
         from PIL import Image
     except ImportError:
         sys.exit("Pillow fehlt (pip install pillow).")
-    if not SCHRIFT.is_file():
-        sys.exit(f"Schrift fehlt: {SCHRIFT} (Poppins Bold, SIL OFL)")
+    for schrift in (SCHRIFT, SCHRIFT_MITTEL):
+        if not schrift.is_file():
+            sys.exit(f"Schrift fehlt: {schrift} (Poppins, SIL OFL)")
     ZIEL.mkdir(exist_ok=True)
 
     dateien = {
@@ -232,6 +249,8 @@ def main() -> None:
         "splash_logo_dark.svg": splash(DUNKEL),
         "OrcaSlicer.svg": symbol(),
         "OrcaSlicer_gray.svg": symbol(grau=True),
+        "OrcaSlicer_about.svg": ueber(dict(HELL, unter="#6B7886", linie="#50708F")),
+        "OrcaSlicer_about_dark.svg": ueber(dict(DUNKEL, unter="#A7B5C2", linie="#50708F")),
     }
     for name, svg in dateien.items():
         (ZIEL / name).write_text(svg, encoding="utf-8")
