@@ -312,7 +312,7 @@ kern::Parameter seiten_param(int auftrag = 0)
 // Reiter „Start“
 wxWeakRef<wxWebView> g_start;
 wxString             g_start_lokal;
-// Reiter „Gerät“ → „Werkstatt“ (Drucker der Werkstatt)
+// Reiter „Gerät“ (Drucker der Werkstatt)
 wxWeakRef<wxWebView> g_geraete;
 
 // Start und Werkstatt sollen neu nachsehen (Anmeldung geändert, Auftrag gesendet).
@@ -412,7 +412,7 @@ private:
 
 wxWeakRef<EulenFenster> g_fenster;
 
-// Reiter „Werkstatt“ im Reiter „Gerät“ (MonitorPanel von OrcaSlicer): die Seite
+// Reiter „Gerät“ (im MonitorPanel von OrcaSlicer statt dessen Reitern): die Seite
 // …/slicer/seite/geraete mit den Druckern der Werkstatt. Geladen wird sie erst, wenn
 // sie zum ersten Mal zu sehen ist; danach sagt der Slicer ihr, ob sie zu sehen ist
 // (eulen_sichtbar), damit sie im Hintergrund nicht ständig im Portal nachfragt.
@@ -452,7 +452,7 @@ public:
         if (status == 404) // Portal erreichbar, Seite nicht: Modul „EulenSlicer“ älter als 1.5.0
             m_browser->SetPage(utf8(hinweisseite("Im Portal fehlt noch die Werkstatt-Seite",
                                                  "Im Portal muss das Modul „EulenSlicer“ ab Version 1.5.0 laufen (3 Eulen → Module). "
-                                                 "Bis dahin zeigt „Status“ die Drucker, die dieser Rechner direkt im Netz erreicht.")),
+                                                 "Direkt im LAN drucken geht weiterhin über „Drucken“.")),
                                wxEmptyString);
         else
             m_browser->SetPage(utf8(fehlerseite()), wxEmptyString);

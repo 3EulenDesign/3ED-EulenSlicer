@@ -372,10 +372,11 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "          m_html->SetPage(eulen_ueber_links()); // EulenSlicer: Portal und orcaslicer.com\n",
         1,
     ),
-    # Reiter „Gerät“: zusätzlich „Werkstatt“ mit den Druckern aus dem Portal (Seite „geraete“,
-    # Modul „slicer“ ab 1.5.0) – mit Portal gleich ausgewählt. Status, Speicher usw. für einen
-    # direkt verbundenen Drucker bleiben wie bei OrcaSlicer; angehängt, damit PT_STATUS … PT_HMS
-    # ihre Nummern behalten.
+    # Reiter „Gerät“: Mit Portal nur die Drucker der Werkstatt (Seite „geraete“, Modul „slicer“
+    # ab 1.5.0) über die ganze Fläche. Die Reiter für einen direkt verbundenen Drucker (Status,
+    # Speicher, Firmware, HMS, Druckerauswahl) bleiben unsichtbar im Panel – so laufen alle
+    # Stellen von OrcaSlicer, die sie ansprechen, weiter, und das Netzwerk-Plugin von Bambu Lab
+    # braucht es für „Gerät“ nicht. Ohne Portal (Build ohne PORTAL_API) alles wie bei OrcaSlicer.
     (
         "src/slic3r/GUI/Monitor.cpp",
         '#include "Tab.hpp"\n',
@@ -384,11 +385,14 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
     ),
     (
         "src/slic3r/GUI/Monitor.cpp",
-        '    m_tabpanel->AddPage(m_hms_panel, _L("Assistant(HMS)"),    "", false);\n',
-        '    m_tabpanel->AddPage(m_hms_panel, _L("Assistant(HMS)"),    "", false);\n'
-        '    // EulenSlicer: Drucker der Werkstatt aus dem Portal\n'
-        '    if (wxWindow* werkstatt = eulen_geraete_seite(m_tabpanel))\n'
-        '        m_tabpanel->AddPage(werkstatt, wxString::FromUTF8("Werkstatt"), "", true);\n',
+        "    m_main_sizer->Add(m_tabpanel, 1, wxEXPAND | wxLEFT, 0);\n    SetSizerAndFit(m_main_sizer);\n",
+        "    m_main_sizer->Add(m_tabpanel, 1, wxEXPAND | wxLEFT, 0);\n"
+        "    // EulenSlicer: mit Portal nur die Drucker der Werkstatt\n"
+        "    if (wxWindow* werkstatt = eulen_geraete_seite(this)) {\n"
+        "        m_main_sizer->Hide(m_tabpanel);\n"
+        "        m_main_sizer->Add(werkstatt, 1, wxEXPAND, 0);\n"
+        "    }\n"
+        "    SetSizerAndFit(m_main_sizer);\n",
         1,
     ),
     # Neue Quelldateien bauen

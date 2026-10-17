@@ -12,7 +12,7 @@
 // - Senden: Projekt als 3MF speichern (geslicet mit G-Code der Platte), in Stücken
 //   im Portal ablegen, Fenster „senden“ öffnen.
 // - Profile: Profile aus dem Portal beim Start und auf Wunsch abgleichen.
-// - Werkstatt: Im Reiter „Gerät“ zeigt „Werkstatt“ die Drucker aus dem Portal.
+// - Werkstatt: Der Reiter „Gerät“ zeigt die Drucker aus dem Portal.
 //
 // Lizenz: AGPL-3.0 wie OrcaSlicer.
 #pragma once
@@ -59,8 +59,8 @@ void eulen_profile_abgleichen(bool vom_nutzer);
 // Menü „3 Eulen“ (in der Titelleiste neben „Hilfe“).
 wxMenu* eulen_menue(wxWindow* fenster);
 
-// Reiter „Werkstatt“ im Reiter „Gerät“: Drucker der Werkstatt aus dem Portal (Seite
-// „geraete“). nullptr, wenn kein Portal eingetragen ist.
+// Reiter „Gerät“: Drucker der Werkstatt aus dem Portal (Seite „geraete“), ersetzt die
+// Ansicht für einen direkt verbundenen Drucker. nullptr, wenn kein Portal eingetragen ist.
 wxWindow* eulen_geraete_seite(wxWindow* parent);
 
 // Einmal nach dem Start (mit der Update-Prüfung): Profile abgleichen.
