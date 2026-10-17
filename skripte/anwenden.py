@@ -492,7 +492,7 @@ def farben(orca: Path, pruefen: bool) -> list[str]:
         rest, m = farben_tauschen(neu)
         if m:
             probleme.append(f"{rel}: {m}× Türkis nach dem Ersetzen übrig")
-    print(f"  Farben    {gesamt} Stellen in {len(geaendert)} Dateien (Türkis → Blau)")
+    print(f"  Farben    {gesamt} Stellen in {len(geaendert)} Dateien (Türkis zu Blau)")
     if not pruefen:
         cpp = [d for d in geaendert if d.endswith(".cpp") and d.startswith("src/")]
         alt = []
@@ -635,6 +635,13 @@ def ersetzen(orca: Path, pruefen: bool) -> list[str]:
 
 
 def main() -> None:
+    # Windows-Runner schreiben in cp1252 – ein Zeichen außerhalb davon soll den Build
+    # nicht abbrechen (so passiert mit „→“), sondern nur als „?“ erscheinen.
+    for strom in (sys.stdout, sys.stderr):
+        try:
+            strom.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--orca", required=True, help="Checkout von OrcaSlicer")
     ap.add_argument("--build", type=int, default=int(os.environ.get("EULEN_BUILD", "0") or 0))
