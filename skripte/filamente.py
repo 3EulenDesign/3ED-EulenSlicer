@@ -73,7 +73,12 @@ def main() -> None:
     ap.add_argument("--vergleichen", nargs=2, metavar=("ALT", "NEU"), help="zwei Tabellen vergleichen statt eine zu erzeugen")
     args = ap.parse_args()
     if args.vergleichen:
-        sys.exit(vergleichen(*args.vergleichen))
+        try:
+            code = vergleichen(*args.vergleichen)
+        except Exception as fehler:  # noqa: BLE001 – „Fehler“ (2), nicht „geändert“ (1)
+            print(f"Vergleich fehlgeschlagen: {fehler}")
+            code = 2
+        sys.exit(code)
     if not args.orca:
         ap.error("--orca fehlt")
 

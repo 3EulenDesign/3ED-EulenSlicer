@@ -42,6 +42,7 @@ jobs:
       stellen: ${{ steps.pruefen.outputs.ergebnis }}
       filamente: ${{ steps.filamente.outputs.ergebnis }}
       pr: ${{ steps.pr.outputs.nummer }}
+      sha: ${{ steps.pr.outputs.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -158,6 +159,7 @@ jobs:
           echo "$NEU" > orca.version
           git commit -am "OrcaSlicer $NEU"
           git push origin "$ZWEIG"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           {
             echo "OrcaSlicer **$NEU** ist erschienen (bisher $ALT)."
             echo
@@ -219,12 +221,13 @@ jobs:
   zusammenfuehren:
     name: Zusammenführen und bauen
     needs: [nachsehen, pruefen]
-    if: always() && needs.nachsehen.outputs.tun == 'ja' && needs.nachsehen.outputs.pr != ''
+    if: ${{ !cancelled() && needs.nachsehen.outputs.tun == 'ja' && needs.nachsehen.outputs.pr != '' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write
       actions: write
+      statuses: write
     steps:
       - name: Zusammenführen und „EulenSlicer bauen“ starten
         env:
@@ -232,6 +235,7 @@ jobs:
           PR: ${{ needs.nachsehen.outputs.pr }}
           NEU: ${{ needs.nachsehen.outputs.neu }}
           ZWEIG: ${{ needs.nachsehen.outputs.zweig }}
+          SHA: ${{ needs.nachsehen.outputs.sha }}
           PRUEFEN: ${{ needs.pruefen.result }}
           AUTOMATISCH: ${{ vars.ORCA_AUTOMATISCH }}
           PORTAL_API: ${{ vars.PORTAL_API }}
@@ -239,6 +243,12 @@ jobs:
           BAUEN: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/bauen.yml
         run: |
           kommentar() { gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body "$1"; }
+
+          # „Prüfen“ läuft hier als Teil dieses Laufs – damit der Pull Request das Ergebnis
+          # trotzdem zeigt, bekommt sein Commit einen Status.
+          if [ "$PRUEFEN" = "success" ]; then zustand=success; text="grün"; else zustand=failure; text="nicht durchgelaufen"; fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$zustand" -f context="Prüfen (OrcaSlicer-Update)" \
+            -f description="Prüfen $text" -f target_url="$LAUF" >/dev/null || true
 
           if [ "${AUTOMATISCH,,}" = "nein" ]; then
             echo "Automatisches Zusammenführen ist aus (Variable ORCA_AUTOMATISCH)."
@@ -249,12 +259,13 @@ jobs:
             exit 0
           fi
 
-          gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --squash --subject "OrcaSlicer $NEU" \
-            || gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --merge --subject "OrcaSlicer $NEU" \
+          # Nur genau den geprüften Commit zusammenführen – kam inzwischen etwas dazu, von Hand.
+          gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --squash --subject "OrcaSlicer $NEU" --match-head-commit "$SHA" \
+            || gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --merge --subject "OrcaSlicer $NEU" --match-head-commit "$SHA" \
             || true
           stand=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json state --jq .state)
           if [ "$stand" != "MERGED" ]; then
-            kommentar "⚠️ „Prüfen“ ist grün, aber der Pull Request ließ sich nicht automatisch zusammenführen ([Lauf]($LAUF)). Bitte von Hand zusammenführen – das startet „EulenSlicer bauen“ (zurückgezogen)."
+            kommentar "⚠️ „Prüfen“ ist grün, aber der Pull Request ließ sich nicht automatisch zusammenführen ([Lauf]($LAUF)) – zum Beispiel, weil inzwischen etwas auf den Zweig gepusht wurde. Bitte von Hand zusammenführen – das startet „EulenSlicer bauen“ (zurückgezogen)."
             exit 1
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ZWEIG" >/dev/null 2>&1 || true
@@ -265,8 +276,11 @@ jobs:
           fi
           # Ein Zusammenführen mit dem Token von Actions löst selbst keinen Workflow aus –
           # deshalb „EulenSlicer bauen“ ausdrücklich starten.
-          gh workflow run bauen.yml -R "$GITHUB_REPOSITORY" --ref main \
+          if ! gh workflow run bauen.yml -R "$GITHUB_REPOSITORY" --ref main \
             -f freigeben=false \
             -f "notizen=OrcaSlicer $NEU – Änderungen: https://github.com/OrcaSlicer/OrcaSlicer/releases/tag/$NEU" \
-            -f "pr=$PR"
-          kommentar "✅ „Prüfen“ grün, automatisch zusammengeführt. [„EulenSlicer bauen“]($BAUEN) läuft jetzt (gut 1,5 Stunden) und lädt die neue Version **zurückgezogen** ins Portal. Wie der Build ausgeht, steht danach hier."
+            -f "pr=$PR"; then
+            kommentar "⚠️ Zusammengeführt, aber „EulenSlicer bauen“ ließ sich nicht starten ([Lauf]($LAUF)). Bitte von Hand starten: Actions → [EulenSlicer bauen]($BAUEN) → Run workflow, „freigeben“ aus."
+            exit 1
+          fi
+          kommentar "✅ „Prüfen“ grün, automatisch zusammengeführt. [„EulenSlicer bauen“]($BAUEN) läuft jetzt (gut 1,5 Stunden) und lädt die neue Version **zurückgezogen** ins Portal. Wie der Build ausgeht, steht danach hier – kommt nach drei Stunden nichts, unter Actions nachsehen (ein zweiter, wartender Build kann ihn verdrängt haben)."
