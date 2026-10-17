@@ -111,6 +111,12 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
   ein wie der Assistent (Hersteller „BBL“, passende Filamente kommen mit) und wählt beim
   ersten Mal den ersten. Läuft mit dem Abgleich der Profile (beim Start, nach dem Anmelden,
   Menü „3 Eulen“ → „Profile aus dem Portal holen“), entfernt nichts.
+- **Filamente aus dem Lager:** kommen als normale Profile aus dem Portal (Modul ab 1.4.0,
+  je Sorte und Drucker, erben von Profilen von Bambu Lab). Welches Profil zu welchem
+  Drucker passt, liest das Portal aus `daten/orca-filamente.json`; die Datei erzeugt
+  `skripte/filamente.py --orca <Checkout> --version v2.4.2` aus den Profilen von OrcaSlicer.
+  Nach einem Update von OrcaSlicer neu erzeugen und ins Repo 3ED-App
+  (`module/slicer/daten/`) kopieren.
 - **Normale Befehle der Startseite:** Von der Portal-Seite nimmt der Slicer nur die Befehle
   für zuletzt geöffnete Projekte, „Neues Projekt“ und „Projekt öffnen“ an; alles andere von
   OrcaSlicer (OrcaCloud, Anmelde-Zeitgeber) bleibt draußen.
@@ -202,6 +208,11 @@ Nach dem Zusammenführen baut „EulenSlicer bauen“ die neue Version (zurückg
 einem Rechner testen, dann im Portal freigeben.
 
 Von Hand: `orca.version` ändern, committen, pushen.
+
+Danach die Tabelle der Filament-Profile für das Portal neu erzeugen
+(`python skripte/filamente.py --orca <Checkout der neuen Version> --version <Tag>`) und
+als `module/slicer/daten/orca-filamente.json` ins Repo 3ED-App legen – sonst erben die
+Filamente aus dem Lager womöglich von Profilen, die es nicht mehr gibt.
 
 ## Lokal bauen (Windows)
 
