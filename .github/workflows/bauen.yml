@@ -110,7 +110,11 @@ jobs:
       - name: Anpassungen des EulenSlicers anwenden
         id: anpassen
         shell: pwsh
-        run: python eulen/skripte/anwenden.py --orca orca
+        run: |
+          # Pillow färbt die PNG-Bilder der Seiten von Türkis zu Blau um.
+          python -m pip install --disable-pip-version-check --quiet pillow
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python eulen/skripte/anwenden.py --orca orca
 
       - name: Abhängigkeiten aus dem Zwischenspeicher
         id: deps

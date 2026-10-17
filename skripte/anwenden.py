@@ -14,7 +14,8 @@ Was es tut:
   1. quellen/*.cpp, *.hpp nach src/slic3r/GUI/ kopieren, bilder/* (Startbild, Symbole
      mit der Eule, erzeugt von skripte/bilder.py) nach resources/images/
   2. src/slic3r/GUI/EulenKonfig.hpp schreiben (Build, Adresse des Portals, Schlüssel)
-  3. die Stellen in ERSETZUNGEN ändern
+  3. die Stellen in ERSETZUNGEN ändern, das Türkis von OrcaSlicer durch das Blau von
+     3 Eulen ersetzen (FARBEN)
   4. Versionen ausgeben (für GitHub Actions auch in $GITHUB_OUTPUT)
 
 Umgebungsvariablen (statt der Schalter):
@@ -315,6 +316,20 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "Http& Http::tls_verify(bool enable)\n",
         1,
     ),
+    # Links in Hinweisen: im Dunkelmodus das helle Blau der Website (#9DBCE0), sonst
+    # wäre das Blau auf dem dunklen Grund schlecht lesbar. Hell: Blau wie in FARBEN.
+    (
+        "src/slic3r/GUI/NotificationManager.cpp",
+        "\tm_HyperTextColor = m_is_dark ? ImVec4(0, 0.588, 0.533, 1) : ImVec4(0, 0.588, 0.533, 1);\n",
+        "\tm_HyperTextColor = m_is_dark ? ImVec4(0.616, 0.737, 0.878, 1) : ImVec4(0.314, 0.439, 0.561, 1); // EulenSlicer\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/NotificationManager.cpp",
+        "\tm_HyperTextColorHover = m_is_dark ? ImVec4(38.f / 255.f, 166.f / 255.f, 154.f / 255.f, 1) : ImVec4(0.f, 129.f / 255.f, 114.f / 255.f, 1); //#26A69A / #008172;\n",
+        "\tm_HyperTextColorHover = m_is_dark ? ImVec4(198.f / 255.f, 219.f / 255.f, 242.f / 255.f, 1) : ImVec4(106.f / 255.f, 133.f / 255.f, 160.f / 255.f, 1); // EulenSlicer: #C6DBF2 / #6A85A0\n",
+        1,
+    ),
     # Neue Quelldateien bauen
     (
         "src/slic3r/CMakeLists.txt",
@@ -332,6 +347,223 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         1,
     ),
 ]
+
+# Farben: das Türkis von OrcaSlicer wird zum Blau von 3 Eulen Design (Schiefer-Blau #50708F wie
+# die Buttons der Website, Theme drei-eulen). Schwarz, Weiß und Grau von OrcaSlicer bleiben.
+# Ersetzt wird nach Farbwert, nicht nach Stelle – in allen Schreibweisen (#009688, 0x009688,
+# wxColour(0, 150, 136), 150.f / 255.f, 0.59f …), in Quelltext, Symbolen und Seiten. So bricht
+# ein Update von OrcaSlicer nichts; bleibt danach irgendwo Türkis übrig (neue Schreibweise,
+# neuer Ton), meldet „Prüfen“ die Stelle.
+FARBEN: dict[str, str] = {
+    # Grundfarbe (Knöpfe, Schalter, Reiter, Rahmen, Symbole). Im Dunkelmodus dunkelt
+    # OrcaSlicer sie ab (#00675B) – das Blau ist schon gedeckt genug und bleibt gleich.
+    "009688": "50708F", "009789": "50708F", "009687": "50708F", "00675B": "50708F",
+    # gedrückt / unter der Maus (hell und dunkel)
+    "00897B": "486581", "26A69A": "6A85A0", "008172": "6A85A0",
+    # hellere Töne in Symbolen und Seiten
+    "33ABA1": "738DA5", "4DB6AC": "849BB1", "02C7B3": "849BB1", "00BFA5": "849BB1", "52C7B8": "8DA2B6",
+    # Fokusrand und leuchtende Töne (Startseite, Assistent) → helles Blau der Website
+    "22BFB0": "9DBCE0", "00FFD4": "C6DBF2", "00FFEA": "9DBCE0", "00FFD9": "9DBCE0",
+    "00F0D8": "9DBCE0", "77EFF9": "9DBCE0",
+    # Grund ausgewählter Einträge: 25 % / 10 % Blau auf Weiß bzw. auf dem dunklen Grau
+    "BFE1DE": "D3DBE3", "E5F0EE": "EEF1F4", "223C3C": "38414D", "244945": "38414D", "283232": "32373F",
+}
+# Diese Töne kommen auch als Kommazahlen vor (ImGui: 0.59f, 0.53f bzw. 150.f / 255.f).
+FARBEN_ZAHLEN = ("009688", "00897B", "26A69A", "008172", "00675B")
+# Wo ersetzt wird (Ordner bzw. Datei, Endungen). Nicht: Profile (Filamentfarben), Farbpaletten
+# für Filamente und Farbskalen der Vorschau – deren Töne stehen nicht in FARBEN.
+FARB_ORTE: list[tuple[str, tuple[str, ...]]] = [
+    ("src/slic3r", (".cpp", ".hpp", ".h")),
+    ("src/libslic3r/Color.hpp", ()),
+    ("deps_src/imgui", (".cpp", ".h")),
+    ("resources/images", (".svg",)),
+    ("resources/web", (".css", ".html", ".htm", ".js", ".svg")),
+]
+# Welche .cpp-Dateien das Umfärben geändert hat (für „Kompilieren“, steht im Checkout).
+FARB_LISTE = ".eulen-farben.txt"
+
+
+def _rgb(hexwert: str) -> tuple[int, int, int]:
+    return int(hexwert[0:2], 16), int(hexwert[2:4], 16), int(hexwert[4:6], 16)
+
+
+_HEX = re.compile(r"(#|(?<![\w])0x)([0-9A-Fa-f]{6})(?![0-9A-Fa-f])")
+_INTS = re.compile(r"\b(wxColour|wxColor|ImColor|IM_COL32)(\s*\(\s*)(\d{1,3})(\s*,\s*)(\d{1,3})(\s*,\s*)(\d{1,3})(?!\d)")
+_BRUCH = re.compile(
+    r"(?<![\w.])(\d{1,3})(?:\.0*)?f?(?:\s*/\s*255(?:\.0*)?f?)?\s*,\s*(\d{1,3})(?:\.0*)?f?\s*/\s*255(?:\.0*)?f?"
+    r"\s*,\s*(\d{1,3})(?:\.0*)?f?\s*/\s*255(?:\.0*)?f?"
+)
+_KOMMA = re.compile(r"(?<![\w.])(0|1|\d?\.\d+)(f?)\s*,\s*(\d?\.\d+)f?\s*,\s*(\d?\.\d+)f?(?![\d.])")
+_NACH_RGB = {_rgb(a): _rgb(n) for a, n in FARBEN.items()}
+_ZAHLEN_RGB = {_rgb(a): _rgb(FARBEN[a]) for a in FARBEN_ZAHLEN}
+
+
+def _komma_ziel(r: float, g: float, b: float) -> tuple[int, int, int] | None:
+    """Kommazahlen (0…1) einer Farbe aus FARBEN_ZAHLEN zuordnen (ImGui rundet auf 2–3 Stellen)."""
+    if max(r, g, b) > 1:
+        return None
+    ist = (r * 255, g * 255, b * 255)
+    for alt, neu in _ZAHLEN_RGB.items():
+        if all(abs(ist[i] - alt[i]) <= 2 for i in range(3)):
+            return neu
+    return None
+
+
+def farben_tauschen(text: str) -> tuple[str, int]:
+    """Alle Türkis-Töne aus FARBEN im Text ersetzen. Gibt den neuen Text und die Anzahl zurück."""
+    n = 0
+
+    def hexwert(m: re.Match) -> str:
+        nonlocal n
+        neu = FARBEN.get(m.group(2).upper())
+        if neu is None:
+            return m.group(0)
+        n += 1
+        return m.group(1) + neu
+
+    def ganzzahlen(m: re.Match) -> str:
+        nonlocal n
+        neu = _NACH_RGB.get((int(m.group(3)), int(m.group(5)), int(m.group(7))))
+        if neu is None:
+            return m.group(0)
+        n += 1
+        return f"{m.group(1)}{m.group(2)}{neu[0]}{m.group(4)}{neu[1]}{m.group(6)}{neu[2]}"
+
+    def bruch(m: re.Match) -> str:
+        nonlocal n
+        neu = _ZAHLEN_RGB.get((int(m.group(1)), int(m.group(2)), int(m.group(3))))
+        if neu is None:
+            return m.group(0)
+        n += 1
+        return f"{neu[0]}.f / 255.f, {neu[1]}.f / 255.f, {neu[2]}.f / 255.f"
+
+    def komma(m: re.Match) -> str:
+        nonlocal n
+        neu = _komma_ziel(float(m.group(1)), float(m.group(3)), float(m.group(4)))
+        if neu is None:
+            return m.group(0)
+        n += 1
+        f = m.group(2)
+        return ", ".join(f"{c / 255:.3f}{f}" for c in neu)
+
+    text = _HEX.sub(hexwert, text)
+    text = _INTS.sub(ganzzahlen, text)
+    text = _BRUCH.sub(bruch, text)
+    text = _KOMMA.sub(komma, text)
+    # BitmapCache: Türkis als ABGR-Zahl (färbt Symbole beim Laden um)
+    abgr_alt = "0xFF889600"
+    if abgr_alt in text:
+        r, g, b = _rgb(FARBEN["009688"])
+        n += text.count(abgr_alt)
+        text = text.replace(abgr_alt, f"0xFF{b:02X}{g:02X}{r:02X}")
+    return text, n
+
+
+def farb_dateien(orca: Path) -> list[Path]:
+    dateien: list[Path] = []
+    for ort, endungen in FARB_ORTE:
+        pfad = orca / ort
+        if pfad.is_file():
+            dateien.append(pfad)
+        elif pfad.is_dir():
+            dateien += sorted(p for p in pfad.rglob("*") if p.is_file() and p.suffix.lower() in endungen)
+    return dateien
+
+
+def farben(orca: Path, pruefen: bool) -> list[str]:
+    """Türkis → Blau. Gibt Probleme zurück (Türkis, das danach noch übrig wäre)."""
+    probleme: list[str] = []
+    gesamt = 0
+    geaendert: list[str] = []
+    for pfad in farb_dateien(orca):
+        roh = pfad.read_bytes()  # Bytes: Zeilenenden und Kodierung bleiben, wie sie sind
+        try:
+            text, kodierung = roh.decode("utf-8"), "utf-8"
+        except UnicodeDecodeError:
+            text, kodierung = roh.decode("latin-1"), "latin-1"
+        neu, n = farben_tauschen(text)
+        rel = pfad.relative_to(orca).as_posix()
+        if n:
+            gesamt += n
+            geaendert.append(rel)
+            if not pruefen:
+                pfad.write_bytes(neu.encode(kodierung))
+        # Rest: noch ein Türkis aus FARBEN in irgendeiner Schreibweise?
+        rest, m = farben_tauschen(neu)
+        if m:
+            probleme.append(f"{rel}: {m}× Türkis nach dem Ersetzen übrig")
+    print(f"  Farben    {gesamt} Stellen in {len(geaendert)} Dateien (Türkis → Blau)")
+    if not pruefen:
+        cpp = [d for d in geaendert if d.endswith(".cpp") and d.startswith("src/")]
+        alt = []
+        liste = orca / FARB_LISTE
+        if liste.is_file():  # zweiter Lauf: dann ist schon alles blau, Liste behalten
+            alt = [z for z in liste.read_text(encoding="utf-8").split() if z]
+        liste.write_text("\n".join(sorted(set(cpp) | set(alt))) + "\n", encoding="utf-8")
+    if gesamt == 0 and not (orca / FARB_LISTE).is_file():
+        probleme.append("kein Türkis gefunden – hat OrcaSlicer die Farbe gewechselt? FARBEN in skripte/anwenden.py anpassen")
+    return probleme
+
+
+def png_farben(orca: Path) -> None:
+    """Türkis in den PNG-Bildern der Seiten (Startseite, Assistent) zu Blau umfärben.
+
+    Je Bildpunkt mit Türkis-Ton: Anteil Türkis gegen Weiß (heller) bzw. Schwarz (dunkler)
+    bestimmen und denselben Anteil Blau nehmen – so bleiben Kanten und Verläufe sauber.
+    Braucht Pillow; ohne Pillow bleiben die Bilder türkis (Warnung).
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        print("::warning::Pillow fehlt – PNG-Bilder der Seiten bleiben türkis (pip install pillow)." if os.environ.get("GITHUB_ACTIONS")
+              else "Warnung: Pillow fehlt – PNG-Bilder der Seiten bleiben türkis (pip install pillow).", file=sys.stderr)
+        return
+    import colorsys
+
+    blau = _rgb(FARBEN["009688"])
+    l_tuerkis = 150 / 255 / 2  # Helligkeit (HLS) von #009688
+    cache: dict[tuple[int, int, int], tuple[int, int, int] | None] = {}
+
+    def neu(rgb: tuple[int, int, int]) -> tuple[int, int, int] | None:
+        if rgb in cache:
+            return cache[rgb]
+        h, l, s = colorsys.rgb_to_hls(*(c / 255 for c in rgb))
+        ziel = None
+        if 150 <= h * 360 <= 200 and s >= 0.25 and 0.04 < l < 0.97:
+            if l >= l_tuerkis:
+                t = min(1.0, (1 - l) / (1 - l_tuerkis))
+                ziel = tuple(round(255 + (c - 255) * t) for c in blau)
+            else:
+                t = l / l_tuerkis
+                ziel = tuple(round(c * t) for c in blau)
+        cache[rgb] = ziel
+        return ziel
+
+    anzahl = 0
+    for pfad in sorted((orca / "resources" / "web").rglob("*.png")):
+        try:
+            with Image.open(pfad) as roh:
+                bild = roh.convert("RGBA")
+        except Exception:  # noqa: BLE001 – kaputte oder exotische Bilder überspringen
+            continue
+        punkte = list(bild.getdata())
+        sichtbar = geaendert = 0
+        aus = []
+        for r, g, b, a in punkte:
+            if a >= 40:
+                sichtbar += 1
+            z = neu((r, g, b)) if a else None
+            if z is None:
+                aus.append((r, g, b, a))
+            else:
+                geaendert += a >= 40
+                aus.append((*z, a))
+        # Nur Bilder, in denen Türkis wirklich vorkommt (nicht einzelne Punkte in Fotos).
+        if sichtbar and geaendert / sichtbar >= 0.01:
+            bild.putdata(aus)
+            bild.save(pfad)
+            anzahl += 1
+    print(f"  Farben    {anzahl} PNG-Bilder der Seiten umgefärbt")
 
 
 def fehler(text: str) -> None:
@@ -415,6 +647,9 @@ def main() -> None:
     if args.dateien:
         dateien = {d for d, _, _, _ in ERSETZUNGEN if d.endswith(".cpp")}
         dateien |= {f"src/slic3r/GUI/{q.name}" for q in (HIER / "quellen").glob("*.cpp")}
+        farb_liste = Path(args.orca) / FARB_LISTE  # vom Umfärben geändert (nach dem Anwenden)
+        if farb_liste.is_file():
+            dateien |= {z for z in farb_liste.read_text(encoding="utf-8").split() if z}
         for d in sorted(dateien):
             print(d)
         return
@@ -427,6 +662,7 @@ def main() -> None:
 
     print("Stellen:")
     probleme = ersetzen(orca, args.pruefen)
+    probleme += farben(orca, args.pruefen)
     if probleme:
         for p in probleme:
             print(f"  FEHLT     {p}", file=sys.stderr)
@@ -455,6 +691,13 @@ def main() -> None:
                 fehler(f"resources/images/{bild.name} gibt es in OrcaSlicer nicht (mehr) – bilder/ anpassen.")
             shutil.copy2(bild, bilder / bild.name)
     print("  kopiert   bilder/* nach resources/images/")
+    # Eule statt Orca auch auf den Seiten (Startseite, Willkommen im Assistenten).
+    logo = orca / "resources" / "web" / "image" / "logo.png"
+    if not logo.is_file():
+        fehler("resources/web/image/logo.png gibt es in OrcaSlicer nicht (mehr) – skripte/anwenden.py anpassen.")
+    shutil.copy2(HIER / "bilder" / "OrcaSlicer_154.png", logo)
+    print("  kopiert   Eule nach resources/web/image/logo.png")
+    png_farben(orca)
     (ziel / "EulenKonfig.hpp").write_text(
         "// Erzeugt von skripte/anwenden.py (EulenSlicer) – nicht von Hand ändern.\n"
         "#pragma once\n\n"
