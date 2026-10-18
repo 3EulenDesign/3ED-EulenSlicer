@@ -395,6 +395,28 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "    SetSizerAndFit(m_main_sizer);\n",
         1,
     ),
+    # Reiter „Kalibrierung“ mit Portal ausblenden: Er kalibriert über eine direkte Verbindung zum
+    # Drucker („Kein Drucker“, Netzwerk-Plugin). Die Kalibriertests im Menü „Kalibrierung“ legen
+    # ein Testobjekt auf die Platte, das über „An 3 Eulen senden“ gedruckt wird. Das Panel bleibt
+    # angelegt (OrcaSlicer spricht m_calibration an), nur nicht im Reiter und unsichtbar.
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        '    m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"), std::string("tab_calibration_active"), false);\n',
+        '    if (eulen_portal_aktiv()) // EulenSlicer: ohne Reiter „Kalibrierung“\n'
+        '        m_calibration->Hide();\n'
+        '    else\n'
+        '        m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"), std::string("tab_calibration_active"), false);\n',
+        1,
+    ),
+    (
+        "src/slic3r/GUI/MainFrame.cpp",
+        '        m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"),\n'
+        '                               std::string("tab_calibration_active"), false);\n',
+        '        if (!eulen_portal_aktiv()) // EulenSlicer: ohne Reiter „Kalibrierung“\n'
+        '            m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"),\n'
+        '                               std::string("tab_calibration_active"), false);\n',
+        1,
+    ),
     # Neue Quelldateien bauen
     (
         "src/slic3r/CMakeLists.txt",

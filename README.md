@@ -22,6 +22,10 @@ Anpassungen für 3 Eulen Design – gebaut für Windows als MSI:
   Temperaturen und das AMS. Die Ansicht für einen direkt verbundenen Drucker (Status,
   Speicher, Firmware, HMS) und damit das Netzwerk-Plugin von Bambu Lab braucht es dafür
   nicht mehr; das Plugin braucht nur noch, wer direkt im LAN druckt („Drucken“).
+- **Kein Reiter „Kalibrierung“:** Er kalibriert über eine direkte Verbindung zum Drucker
+  („Kein Drucker“, Netzwerk-Plugin). Die Kalibriertests im Menü „Kalibrierung“ (Temperatur,
+  Fluss, Pressure Advance, Retraction …) legen ein Testobjekt auf die Platte, das wie jedes
+  Projekt mit „An 3 Eulen senden“ gedruckt wird.
 - **Startseite und „Meine Aufträge“ aus dem Portal:** zuletzt geöffnete Projekte, eigene
   offene Aufträge mit Rückfragen, Drucker in der Werkstatt, Hinweise aus der Verwaltung.
   Ohne Verbindung zum Portal bleibt die normale Startseite.
@@ -84,6 +88,7 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
 | `src/slic3r/GUI/WebViewDialog.cpp` | Reiter „Start“: Seite aus dem Portal (`eulen_start_einrichten`), von dort nur Seiten des Portals (Links im Browser), Rückfall auf die normale Startseite bei Fehlern, Befehle `eulen_*` der Seite |
 | `src/slic3r/GUI/Monitor.cpp` | Reiter „Gerät“: mit Portal die Seite „geraete“ (`eulen_geraete_seite()`) über die ganze Fläche; die Reiter von OrcaSlicer (Status, Speicher, Firmware, HMS, Druckerauswahl) bleiben unsichtbar im Panel, damit alle Stellen, die sie ansprechen, weiterlaufen |
 | `src/slic3r/GUI/MainFrame.cpp`, `MainFrame.hpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und als Auswahl `eEulenSenden` des Knopfs „Drucken“ – mit Portal die Standardauswahl (`set_print_button_to_default`), auch ohne Slicen aktiv |
+| `src/slic3r/GUI/MainFrame.cpp` (Kalibrierung) | mit Portal kein Reiter „Kalibrierung“ (beim Start und in `show_device()`); das Panel bleibt unsichtbar angelegt, weil OrcaSlicer `m_calibration` anspricht |
 | `src/libslic3r/AppConfig.cpp` | Login-Spalte von OrcaCloud auf der normalen Startseite standardmäßig aus |
 | `resources/images/` | Startbild und Symbole aus `bilder/` (auch Symbol der `.exe` und der MSI) |
 | `src/libslic3r/libslic3r.h` | `SLIC3R_APP_FULL_NAME` „EulenSlicer“ statt „Orca Slicer“ – Name in Fenstertiteln und Meldungen (nur Anzeige; Datenordner und Konfiguration hängen an `SLIC3R_APP_KEY` bzw. `SetAppName`) |
