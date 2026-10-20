@@ -3,7 +3,8 @@
 Der EulenSlicer ist [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) mit ein paar
 Anpassungen für 3 Eulen Design – gebaut für Windows als MSI:
 
-- **Eulen statt Orca:** Startbild mit den drei Eulen aus dem Website-Theme, App-Symbol mit
+- **Eulen statt Orca:** Startbild mit den drei Eulen aus dem Website-Theme und unten
+  „Powered by 3 Eulen Design®“ mit dem Logo, App-Symbol mit
   der Schiefer-Eule, Menü „3 Eulen“ in der Titelleiste, Fenster „Über EulenSlicer“ (das
   Copyright von OrcaSlicer und die Lizenzhinweise bleiben, wie es die AGPL verlangt).
 - **Farben von 3 Eulen:** Blau statt Türkis (Schiefer-Blau `#50708F` wie die Buttons der
@@ -57,9 +58,12 @@ quellen/                     neue Dateien, landen in src/slic3r/GUI/ von OrcaSli
                              Fehlertexte, Plan für den Abgleich der Profile
 bilder/                      Startbild (splash_logo*.svg), Symbole mit der Eule und Kopf von „Über“
                              (OrcaSlicer_about*.svg), ersetzen die von OrcaSlicer
+  marke/                     Logo von 3 Eulen Design (JPG) und als Pfade (abzeichen.svg, schriftzug.svg)
+                             fürs Startbild – NanoSVG kennt keine Pixelbilder
   vorschau/                  so sehen die Startbilder aus (nicht im Programm)
 skripte/
   anwenden.py                kopiert quellen/ und bilder/, schreibt EulenKonfig.hpp, ändert die Stellen in OrcaSlicer
+  logo_vektor.py             wandelt das Logo (bilder/marke/3-eulen-design.jpg) in SVG-Pfade um (OpenCV; nur bei Änderungen)
   bilder.py                  erzeugt bilder/ (Eulen aus dem Theme, Schriftzug Poppins Bold als Pfad; nur bei Änderungen)
   hochladen.py               signiert die MSI und lädt sie in Stücken ins Portal
   msi.ps1                    baut die MSI aus dem Programmordner (WiX 5, absolute Pfade, Größenprüfung)
@@ -92,6 +96,7 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
 | `src/libslic3r/AppConfig.cpp` | Login-Spalte von OrcaCloud auf der normalen Startseite standardmäßig aus |
 | `resources/images/` | Startbild und Symbole aus `bilder/` (auch Symbol der `.exe` und der MSI) |
 | `src/libslic3r/libslic3r.h` | `SLIC3R_APP_FULL_NAME` „EulenSlicer“ statt „Orca Slicer“ – Name in Fenstertiteln und Meldungen (nur Anzeige; Datenordner und Konfiguration hängen an `SLIC3R_APP_KEY` bzw. `SetAppName`) |
+| `src/slic3r/GUI/GUI_App.cpp` (Startbild) | Version bei 70 % statt 72 %, Fortschritt bei 79 % statt 88 % der Höhe – unten steht „Powered by 3 Eulen Design®“ (im Startbild aus `bilder/`) |
 | `src/slic3r/GUI/AboutDialog.cpp` | „Über EulenSlicer“: Kopf `OrcaSlicer_about*.svg` aus `bilder/`, „Build 12 · OrcaSlicer <Commit>“, eigene Absätze (`eulen_ueber_texte`), Zeile „Anpassungen von 3 Eulen Design“ über dem Copyright von OrcaSlicer, Links zum Portal und zu orcaslicer.com |
 | `resources/web/image/logo.png` | Eule (`bilder/OrcaSlicer_154.png`) statt Orca auf der Startseite und im Assistenten |
 | `src/slic3r/`, `src/libslic3r/Color.hpp`, `deps_src/imgui/`, `resources/images/*.svg`, `resources/web/` | **Farben** (`FARBEN`): Türkis → Blau nach Farbwert in allen Schreibweisen (`#009688`, `0x009688`, `wxColour(0, 150, 136)`, `150.f / 255.f`, `0.59f` …), dazu Hover-, Druck- und Auswahltöne; PNG-Bilder der Seiten mit Pillow. Bleibt nach einem Orca-Update Türkis übrig (neuer Ton, neue Schreibweise), meldet „Prüfen“ die Datei – dann den Ton in `FARBEN` ergänzen. Filamentfarben, Profile und Farbskalen der Vorschau bleiben unberührt |

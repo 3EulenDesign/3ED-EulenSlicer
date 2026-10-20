@@ -417,6 +417,20 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         '                               std::string("tab_calibration_active"), false);\n',
         1,
     ),
+    # Startbild: Version und Fortschritt etwas höher (72 → 70 %, 88 → 79 %), damit unten
+    # „Powered by 3 Eulen Design®“ mit dem Logo Platz hat (steht in bilder/splash_logo*.svg).
+    (
+        "src/slic3r/GUI/GUI_App.cpp",
+        "        rc.y      = c_sz.GetHeight() * 0.72;\n",
+        "        rc.y      = c_sz.GetHeight() * 0.70; // EulenSlicer (OrcaSlicer: 0.72)\n",
+        1,
+    ),
+    (
+        "src/slic3r/GUI/GUI_App.cpp",
+        "        rc.y      = c_sz.GetHeight() * 0.88;\n",
+        "        rc.y      = c_sz.GetHeight() * 0.79; // EulenSlicer (OrcaSlicer: 0.88)\n",
+        1,
+    ),
     # Neue Quelldateien bauen
     (
         "src/slic3r/CMakeLists.txt",

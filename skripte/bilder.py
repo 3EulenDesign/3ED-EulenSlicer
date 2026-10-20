@@ -10,6 +10,9 @@ als Pfad – der Slicer zeichnet SVG mit NanoSVG, das kennt weder Text noch <use
 Muster oder Beschnitt. Deshalb steht hier alles ausgeschrieben, auch die
 Druckschichten der Eulen (Streifen, auf den Körper zugeschnitten).
 
+Ganz unten im Startbild steht „Powered by 3 Eulen Design®“ mit dem Logo (Pfade in
+bilder/marke/, erzeugt mit skripte/logo_vektor.py).
+
 Braucht nur zum Neuerzeugen: Python mit Pillow, fontTools, Playwright (Chromium)
 und die Schrift Poppins Bold. Die erzeugten Dateien liegen im Repo (bilder/);
 skripte/anwenden.py kopiert sie nach resources/images/ von OrcaSlicer.
@@ -31,9 +34,11 @@ SCHRIFT_MITTEL = Path("/usr/share/fonts/truetype/google-fonts/Poppins-Medium.ttf
 HELL = {
     "owl_a": "#D69A3F", "owl_b": "#4F6D8F", "owl_c": "#7C8A52",
     "face": "#F4F0E8", "beak": "#C2662B", "eye": "#22303D",
-    "branch": "#6E5340", "leaf": "#93A86B", "ink": "#1E2B38", "akzent": "#4F6D8F",
+    "branch": "#6E5340", "leaf": "#93A86B", "ink": "#1E2B38", "akzent": "#4F6D8F", "leise": "#6B7886",
 }
-DUNKEL = dict(HELL, face="#DCD6CB", branch="#8C6B51", ink="#E5ECF2", akzent="#9DBCE0", eye="#16202B")
+DUNKEL = dict(HELL, face="#DCD6CB", branch="#8C6B51", ink="#E5ECF2", akzent="#9DBCE0", eye="#16202B", leise="#A7B5C2")
+# Logo von 3 Eulen Design als Pfade (skripte/logo_vektor.py aus marke/3-eulen-design.jpg)
+MARKE = ZIEL / "marke"
 
 KOERPER = "M -32,0 C -38,-30 -36,-60 -30,-78 L -24,-92 L -12,-80 Q 0,-84 12,-80 L 24,-92 L 30,-78 C 36,-60 38,-30 32,0 Q 0,8 -32,0 Z"
 
@@ -159,9 +164,37 @@ def schriftzug(teile, groesse, mitte_x, grundlinie, schrift=SCHRIFT, links=None)
 # Bilder
 # --------------------------------------------------------------------------
 
+def marke(name):
+    """Pfad eines Teils des Logos: (d, Breite, Höhe) aus marke/<name>.svg."""
+    import re
+
+    t = (MARKE / f"{name}.svg").read_text(encoding="utf-8")
+    w, h = map(float, re.search(r'viewBox="0 0 (\d+) (\d+)"', t).groups())
+    return re.search(r' d="([^"]+)"', t).group(1), w, h
+
+
+def powered_by(f, unten=474):
+    """Unten im Startbild: Abzeichen von 3 Eulen Design, daneben „Powered by“ und der
+    Schriftzug „3 EULEN DESIGN®“ aus dem Logo, zusammen mittig."""
+    d_abz, w_abz, h_abz = marke("abzeichen")
+    d_wort, w_wort, h_wort = marke("schriftzug")
+    hoehe, wort_hoehe, abstand = 52, 14, 12
+    s_abz, s_wort = hoehe / h_abz, wort_hoehe / h_wort
+    breite = w_abz * s_abz + abstand + w_wort * s_wort
+    x, oben = 240 - breite / 2, unten - hoehe
+    x_text = x + w_abz * s_abz + abstand
+    text, _ = schriftzug([("Powered by", f["leise"])], 12, 0, oben + 21, schrift=SCHRIFT_MITTEL, links=x_text)
+    return (
+        f'<g transform="translate({x:.2f} {oben:.2f}) scale({s_abz:.5f})"><path fill-rule="evenodd" fill="{f["ink"]}" d="{d_abz}"/></g>'
+        f"{text}"
+        f'<g transform="translate({x_text:.2f} {oben + 28:.2f}) scale({s_wort:.5f})"><path fill-rule="evenodd" fill="{f["ink"]}" d="{d_wort}"/></g>'
+    )
+
+
 def splash(f):
-    """480 × 480, durchsichtig: drei Eulen auf dem Ast, darunter „EulenSlicer“.
-    OrcaSlicer schreibt die Version bei 72 % und den Fortschritt bei 88 % der Höhe darunter."""
+    """480 × 480, durchsichtig: drei Eulen auf dem Ast, darunter „EulenSlicer“, ganz unten
+    „Powered by 3 Eulen Design®“. Die Version schreibt der Slicer bei 70 %, den Fortschritt bei
+    79 % der Höhe (EulenSlicer; OrcaSlicer: 72 und 88 %, siehe skripte/anwenden.py)."""
     s = 1.06
     dx, dy = 240 - 180 * s, 70
     szene = (
@@ -175,7 +208,7 @@ def splash(f):
         + "</g>"
     )
     text, _ = schriftzug([("Eulen", f["ink"]), ("Slicer", f["akzent"])], 46, 240, 322)
-    return f'<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">{szene}{text}</svg>'
+    return f'<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">{szene}{text}{powered_by(f)}</svg>'
 
 
 def ueber(f):
