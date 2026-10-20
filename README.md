@@ -11,7 +11,9 @@ Anpassungen für 3 Eulen Design – gebaut für Windows als MSI:
   Website) – Knöpfe, Schalter, Reiter, Symbole, 3D-Ansicht, Startseite und Assistent.
   Schwarz, Weiß und Grau bleiben wie bei OrcaSlicer.
 - **Anmelden im Browser:** „Anmelden“ zeigt einen Code, der Browser öffnet das Portal, dort
-  bestätigen – fertig. Kein Schlüssel zum Abtippen, kein OrcaCloud-Konto. Ohne Konto geht es
+  den Code eintippen und bestätigen – fertig (seit Modul `slicer` 1.6.0 steht der Code nicht
+  mehr im Link, damit ein zugeschickter Link allein keinen fremden Slicer anmeldet). Kein
+  Schlüssel, kein OrcaCloud-Konto. Ohne Konto geht es
   mit dem **Werkstatt-Code** (Name Pflicht, E-Mail freiwillig).
 - **An 3 Eulen senden:** neben „Drucken“, im Menü „3 Eulen“ und auf der Startseite. Der
   Slicer speichert das Projekt (geslicet mit G-Code der Platte, sonst nur das Modell), legt
@@ -217,7 +219,7 @@ so ersetzt jede neue MSI die alte, auch über einen Versionssprung von OrcaSlice
   `%APPDATA%\OrcaSlicer` nach `%APPDATA%\EulenSlicer` kopieren. Sonst startet der
   EulenSlicer mit dem Einrichtungsassistenten.
 - **Mit dem Portal verbinden:** Startseite → „Anmelden“ (oder Menü „3 Eulen“ → „Anmelden /
-  Konto“) → „Im Browser anmelden“ und im Portal den Code bestätigen. In der Werkstatt ohne
+  Konto“) → „Im Browser anmelden“ und im Portal den Code eintippen, den der Slicer zeigt, und bestätigen. In der Werkstatt ohne
   Konto: „Ohne Konto (Werkstatt)“ mit dem Code aus dem Aushang. Abmelden widerruft den Zugang
   im Portal. Der alte Weg über den Druck-Host (Zugang im *Interner Bereich → EulenSlicer*,
   Host-Typ „Octo/Klipper“) geht weiterhin.
