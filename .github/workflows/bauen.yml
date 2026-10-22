@@ -71,12 +71,13 @@ jobs:
 
       - name: Eigener Runner – ist alles installiert?
         if: runner.environment == 'self-hosted'
-        shell: pwsh
+        # cmd und Windows PowerShell 5.1: meldet auch ein fehlendes PowerShell 7.
+        shell: cmd
         run: |
-          pwsh eulen/skripte/runner-pruefen.ps1 -Fuer bauen
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # Der eigene Runner behält den Arbeitsordner: alte MSIs weg (eulen/ und orca/ räumt checkout auf).
-          Get-ChildItem -File -Filter 'EulenSlicer-*' | Remove-Item -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File eulen\skripte\runner-pruefen.ps1 -Fuer bauen || exit /b 1
+          rem Der eigene Runner behält den Arbeitsordner: alte MSIs weg (eulen\ und orca\ räumt checkout auf).
+          del /q EulenSlicer-* 2>nul
+          exit /b 0
 
       - name: Einstellungen prüfen
         shell: pwsh

@@ -39,8 +39,9 @@ jobs:
 
       - name: Eigener Runner – ist alles installiert?
         if: runner.environment == 'self-hosted'
-        shell: pwsh
-        run: pwsh eulen/skripte/runner-pruefen.ps1 -Fuer kompilieren
+        # cmd und Windows PowerShell 5.1: meldet auch ein fehlendes PowerShell 7.
+        shell: cmd
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File eulen\skripte\runner-pruefen.ps1 -Fuer kompilieren
 
       - name: Version von OrcaSlicer
         id: orca

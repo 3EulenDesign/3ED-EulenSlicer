@@ -2,8 +2,9 @@
   Prüft, ob ein eigener Windows-Runner alles hat, was die Workflows des EulenSlicers brauchen.
 
   Läuft als erster Schritt von „EulenSlicer bauen“, „Kompilieren“ und „MSI neu packen“, wenn
-  der Job auf einem eigenen Runner läuft (auf windows-latest von GitHub ist alles da). Auch von
-  Hand auf der VM aufrufbar; runner-einrichten.ps1 ruft es am Ende auf.
+  der Job auf einem eigenen Runner läuft (auf windows-latest von GitHub ist alles da) – über
+  cmd und Windows PowerShell 5.1, damit es auch dann alles meldet, wenn PowerShell 7 fehlt.
+  Auch von Hand auf der VM aufrufbar; runner-einrichten.ps1 ruft es am Ende auf.
 
     -Fuer bauen        alles (Visual Studio, Windows SDK, Python, Git, .NET SDK, Perl)
     -Fuer kompilieren  ohne .NET SDK und Perl
@@ -19,6 +20,7 @@ param(
     [ValidateSet('bauen', 'kompilieren', 'msi')]
     [string]$Fuer = 'bauen'
 )
+$ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 $imLauf = [bool]$env:GITHUB_ACTIONS
@@ -51,6 +53,10 @@ if ($pyText -match 'Python (3)\.(\d+)' -and [int]$Matches[2] -ge 9) {
 } else {
     Fehlt 'Python 3.9 oder neuer (Befehl python, für alle Konten installiert)'
 }
+
+# PowerShell 7: alle anderen Schritte der Workflows laufen mit shell: pwsh.
+$pwsh = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($pwsh) { Gut "PowerShell $((& pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' | Out-String).Trim())" } else { Fehlt 'PowerShell 7 (Befehl pwsh)' }
 
 $git = Get-Command git -ErrorAction SilentlyContinue
 if ($git) { Gut ((& git --version | Out-String).Trim()) } else { Fehlt 'Git' }
