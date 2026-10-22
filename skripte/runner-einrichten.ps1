@@ -46,12 +46,13 @@ function Da([string]$befehl) {
     return ($alle -contains $ordner)
 }
 
-function Installieren([string]$id, [string]$name, [string]$override, [switch]$Erzwingen) {
+function Installieren([string]$id, [string]$name, [string]$override, [switch]$Erzwingen, [string]$Art) {
     Write-Host ''
     Write-Host "== $name ($id)" -ForegroundColor Cyan
     $a = @('install', '--id', $id, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements')
     if ($override) { $a += @('--override', $override) }
     if ($Erzwingen) { $a += '--force' }
+    if ($Art) { $a += @('--installer-type', $Art) }
     & winget @a
     if ($LASTEXITCODE -ne 0) {
         # Auch "Neustart nötig" kommt als Fehlercode – ob es wirklich fehlt, zeigt die Prüfung am Ende.
@@ -85,8 +86,10 @@ if (Da 'python') {
     Installieren 'Python.Python.3.12' 'Python 3.12 für alle Konten' '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0'
 }
 
-if (Da 'pwsh') { Write-Host 'PowerShell 7 ist da.' } else { Installieren 'Microsoft.PowerShell' 'PowerShell 7' '' }
-# Die MSI trägt sich sonst in den PATH ein; fehlt der Eintrag (oder kam pwsh aus dem Store), nachtragen.
+# Ausdrücklich die MSI: Ohne --installer-type nimmt winget unter Umständen das MSIX-Paket, das wie die
+# Store-Version nur für ein Konto gilt – der Runner-Dienst fände pwsh dann nicht.
+if (Da 'pwsh') { Write-Host 'PowerShell 7 ist da.' } else { Installieren 'Microsoft.PowerShell' 'PowerShell 7 (MSI)' '' -Art 'msi' }
+# Die MSI trägt sich sonst in den PATH ein; fehlt der Eintrag, nachtragen.
 $pwshOrdner = Join-Path $env:ProgramFiles 'PowerShell\7'
 if ((Test-Path (Join-Path $pwshOrdner 'pwsh.exe')) -and -not (Da 'pwsh')) {
     Write-Host "Trage $pwshOrdner in den PATH für alle Konten ein."
@@ -94,9 +97,12 @@ if ((Test-Path (Join-Path $pwshOrdner 'pwsh.exe')) -and -not (Da 'pwsh')) {
     Pfad-Neu
 } elseif (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) {
     # winget hält eine Store-Version (nur für ein Konto) für installiert: die MSI für alle Konten erzwingen.
-    Installieren 'Microsoft.PowerShell' 'PowerShell 7 für alle Konten (MSI)' '' -Erzwingen
+    Installieren 'Microsoft.PowerShell' 'PowerShell 7 für alle Konten (MSI)' '' -Erzwingen -Art 'msi'
     if (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) {
-        Write-Warning "PowerShell 7 liegt weiter nicht unter $pwshOrdner. Von Hand: winget install --id Microsoft.PowerShell --exact --source winget --force"
+        Write-Warning "PowerShell 7 liegt weiter nicht unter $pwshOrdner. Die MSI (PowerShell-7.x.x-win-x64.msi) von https://github.com/PowerShell/PowerShell/releases installieren."
+    } elseif (-not (Da 'pwsh')) {
+        [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine').TrimEnd(';') + ';' + $pwshOrdner, 'Machine')
+        Pfad-Neu
     }
 }
 
