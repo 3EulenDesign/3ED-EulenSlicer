@@ -85,6 +85,15 @@ if (Da 'python') {
 }
 
 if (Da 'pwsh') { Write-Host 'PowerShell 7 ist da.' } else { Installieren 'Microsoft.PowerShell' 'PowerShell 7' '' }
+# Die MSI trägt sich sonst in den PATH ein; fehlt der Eintrag (oder kam pwsh aus dem Store), nachtragen.
+$pwshOrdner = Join-Path $env:ProgramFiles 'PowerShell\7'
+if ((Test-Path (Join-Path $pwshOrdner 'pwsh.exe')) -and -not (Da 'pwsh')) {
+    Write-Host "Trage $pwshOrdner in den PATH für alle Konten ein."
+    [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine').TrimEnd(';') + ';' + $pwshOrdner, 'Machine')
+    Pfad-Neu
+} elseif (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) {
+    Write-Warning "PowerShell 7 liegt nicht unter $pwshOrdner. Von Hand: winget install --id Microsoft.PowerShell --exact --source winget --force"
+}
 
 $sdk = $false
 if (Da 'dotnet') { $sdk = [bool](& dotnet --list-sdks 2>$null | Where-Object { $_ -match '^([6-9]|\d\d)\.' }) }
@@ -115,8 +124,9 @@ if ($dienste.Count -gt 0) {
         Restart-Service -InputObject $_ -Force
     }
 } else {
-    Write-Host 'Noch kein Runner-Dienst. Runner registrieren (siehe oben im Skript), als Dienst einrichten'
-    Write-Host 'und dieses Skript danach noch einmal starten.'
+    Write-Host 'Kein Runner-Dienst gefunden. Läuft der Runner in einem Fenster (run.cmd), das Fenster'
+    Write-Host 'schließen und run.cmd neu starten - erst dann sieht er die neuen Programme. Sonst den'
+    Write-Host 'Runner registrieren (siehe oben im Skript), als Dienst einrichten und dieses Skript noch einmal starten.'
 }
 
 Write-Host ''

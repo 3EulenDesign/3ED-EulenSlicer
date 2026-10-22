@@ -56,7 +56,14 @@ if ($pyText -match 'Python (3)\.(\d+)' -and [int]$Matches[2] -ge 9) {
 
 # PowerShell 7: alle anderen Schritte der Workflows laufen mit shell: pwsh.
 $pwsh = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($pwsh) { Gut "PowerShell $((& pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' | Out-String).Trim())" } else { Fehlt 'PowerShell 7 (Befehl pwsh)' }
+$pwshStandard = Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe'
+if ($pwsh -and $pwsh.Source -notlike '*\WindowsApps\*') {
+    Gut "PowerShell $((& pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' | Out-String).Trim())"
+} elseif (Test-Path $pwshStandard) {
+    Fehlt "PowerShell 7 im PATH dieses Kontos (installiert unter $(Split-Path $pwshStandard), aber nicht gefunden: Ordner in den PATH für alle Konten aufnehmen und den Runner-Dienst bzw. run.cmd neu starten)"
+} else {
+    Fehlt 'PowerShell 7 (Befehl pwsh, MSI-Installation für alle Konten)'
+}
 
 $git = Get-Command git -ErrorAction SilentlyContinue
 if ($git) { Gut ((& git --version | Out-String).Trim()) } else { Fehlt 'Git' }
