@@ -79,7 +79,7 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
 .github/workflows/
   bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal (eigener Runner)
   msi.yml                    „MSI neu packen“: nur die MSI aus dem Programmordner eines Laufs (Minuten statt Stunden)
-  kompilieren.yml            „Kompilieren“: übersetzt nur die geänderten Dateien (etwa 15 Minuten), bei jedem Push auf quellen/
+  kompilieren.yml            „Kompilieren“: übersetzt nur die geänderten Dateien (etwa 6 Minuten), bei jedem Push auf quellen/
   pruefen.yml                „Prüfen“: Kern-Test, Skripte, passen die Stellen zu OrcaSlicer?
   upstream.yml               „OrcaSlicer-Update“: wöchentlich; bei neuer OrcaSlicer-Version Pull Request,
                              Prüfen, automatisch zusammenführen und bauen (zurückgezogen)
