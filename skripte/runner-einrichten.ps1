@@ -5,7 +5,7 @@
   Installiert über winget, was „EulenSlicer bauen“, „Kompilieren“ und „MSI neu packen“
   brauchen (schon Vorhandenes wird übersprungen, das Skript kann also mehrmals laufen):
     - Visual Studio 2022 Build Tools mit C++ und Windows SDK (wie windows-latest bei GitHub)
-    - Git, Python 3.12 (für alle Konten), PowerShell 7
+    - Git, Python 3.12 (für alle Konten), PowerShell 7 (MSI von GitHub, Signatur geprüft)
     - .NET SDK 8 (für WiX, das msi.ps1 beim ersten Lauf holt)
     - Strawberry Perl (OpenSSL in den Abhängigkeiten von OrcaSlicer)
   Danach: lange Pfade an, Git mit langen Pfaden, Runner-Dienst neu starten (damit er die
@@ -46,13 +46,11 @@ function Da([string]$befehl) {
     return ($alle -contains $ordner)
 }
 
-function Installieren([string]$id, [string]$name, [string]$override, [switch]$Erzwingen, [string]$Art) {
+function Installieren([string]$id, [string]$name, [string]$override) {
     Write-Host ''
     Write-Host "== $name ($id)" -ForegroundColor Cyan
     $a = @('install', '--id', $id, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements')
     if ($override) { $a += @('--override', $override) }
-    if ($Erzwingen) { $a += '--force' }
-    if ($Art) { $a += @('--installer-type', $Art) }
     & winget @a
     if ($LASTEXITCODE -ne 0) {
         # Auch "Neustart nötig" kommt als Fehlercode – ob es wirklich fehlt, zeigt die Prüfung am Ende.
@@ -86,25 +84,39 @@ if (Da 'python') {
     Installieren 'Python.Python.3.12' 'Python 3.12 für alle Konten' '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0'
 }
 
-# Ausdrücklich die MSI: Ohne --installer-type nimmt winget unter Umständen das MSIX-Paket, das wie die
-# Store-Version nur für ein Konto gilt – der Runner-Dienst fände pwsh dann nicht.
-if (Da 'pwsh') { Write-Host 'PowerShell 7 ist da.' } else { Installieren 'Microsoft.PowerShell' 'PowerShell 7 (MSI)' '' -Art 'msi' }
-# Die MSI trägt sich sonst in den PATH ein; fehlt der Eintrag, nachtragen.
+# PowerShell 7 als MSI für alle Konten. Nicht über winget: Das nimmt je nach Version das MSIX-Paket
+# (gilt wie die Store-Version nur für ein Konto, der Runner-Dienst fände pwsh nicht) oder bietet gar
+# keine MSI an. Deshalb die MSI des neuesten Releases von GitHub, mit geprüfter Signatur von Microsoft.
+function PowerShell-Msi {
+    Write-Host ''
+    Write-Host '== PowerShell 7 (MSI von github.com/PowerShell/PowerShell)' -ForegroundColor Cyan
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = 'SilentlyContinue'
+    $rel = Invoke-RestMethod 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -UseBasicParsing
+    $datei = $rel.assets | Where-Object { $_.name -like 'PowerShell-*-win-x64.msi' } | Select-Object -First 1
+    if (-not $datei) { Write-Warning "Im Release $($rel.tag_name) gibt es keine MSI für x64."; return }
+    $msi = Join-Path $env:TEMP $datei.name
+    Invoke-WebRequest $datei.browser_download_url -OutFile $msi -UseBasicParsing
+    $sig = Get-AuthenticodeSignature $msi
+    if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike '*Microsoft Corporation*') {
+        Write-Warning "Signatur von $($datei.name) stimmt nicht ($($sig.Status), $($sig.SignerCertificate.Subject)) - nicht installiert."
+        return
+    }
+    Write-Host "Installiere $($datei.name) ..."
+    $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i `"$msi`" /qn /norestart ADD_PATH=1"
+    if ($p.ExitCode -notin 0, 3010) { Write-Warning "msiexec meldet $($p.ExitCode)." }
+    Pfad-Neu
+}
+
 $pwshOrdner = Join-Path $env:ProgramFiles 'PowerShell\7'
+if (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) { PowerShell-Msi }
 if ((Test-Path (Join-Path $pwshOrdner 'pwsh.exe')) -and -not (Da 'pwsh')) {
+    # Die MSI trägt sich sonst selbst in den PATH ein; fehlt der Eintrag, nachtragen.
     Write-Host "Trage $pwshOrdner in den PATH für alle Konten ein."
     [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine').TrimEnd(';') + ';' + $pwshOrdner, 'Machine')
     Pfad-Neu
-} elseif (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) {
-    # winget hält eine Store-Version (nur für ein Konto) für installiert: die MSI für alle Konten erzwingen.
-    Installieren 'Microsoft.PowerShell' 'PowerShell 7 für alle Konten (MSI)' '' -Erzwingen -Art 'msi'
-    if (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) {
-        Write-Warning "PowerShell 7 liegt weiter nicht unter $pwshOrdner. Die MSI (PowerShell-7.x.x-win-x64.msi) von https://github.com/PowerShell/PowerShell/releases installieren."
-    } elseif (-not (Da 'pwsh')) {
-        [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine').TrimEnd(';') + ';' + $pwshOrdner, 'Machine')
-        Pfad-Neu
-    }
 }
+if (Da 'pwsh') { Write-Host 'PowerShell 7 ist da.' } else { Write-Warning "PowerShell 7 fehlt weiter unter $pwshOrdner." }
 
 $sdk = $false
 if (Da 'dotnet') { $sdk = [bool](& dotnet --list-sdks 2>$null | Where-Object { $_ -match '^([6-9]|\d\d)\.' }) }
