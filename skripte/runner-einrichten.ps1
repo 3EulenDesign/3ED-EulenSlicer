@@ -46,11 +46,12 @@ function Da([string]$befehl) {
     return ($alle -contains $ordner)
 }
 
-function Installieren([string]$id, [string]$name, [string]$override) {
+function Installieren([string]$id, [string]$name, [string]$override, [switch]$Erzwingen) {
     Write-Host ''
     Write-Host "== $name ($id)" -ForegroundColor Cyan
     $a = @('install', '--id', $id, '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements')
     if ($override) { $a += @('--override', $override) }
+    if ($Erzwingen) { $a += '--force' }
     & winget @a
     if ($LASTEXITCODE -ne 0) {
         # Auch "Neustart nötig" kommt als Fehlercode – ob es wirklich fehlt, zeigt die Prüfung am Ende.
@@ -92,7 +93,11 @@ if ((Test-Path (Join-Path $pwshOrdner 'pwsh.exe')) -and -not (Da 'pwsh')) {
     [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine').TrimEnd(';') + ';' + $pwshOrdner, 'Machine')
     Pfad-Neu
 } elseif (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) {
-    Write-Warning "PowerShell 7 liegt nicht unter $pwshOrdner. Von Hand: winget install --id Microsoft.PowerShell --exact --source winget --force"
+    # winget hält eine Store-Version (nur für ein Konto) für installiert: die MSI für alle Konten erzwingen.
+    Installieren 'Microsoft.PowerShell' 'PowerShell 7 für alle Konten (MSI)' '' -Erzwingen
+    if (-not (Test-Path (Join-Path $pwshOrdner 'pwsh.exe'))) {
+        Write-Warning "PowerShell 7 liegt weiter nicht unter $pwshOrdner. Von Hand: winget install --id Microsoft.PowerShell --exact --source winget --force"
+    }
 }
 
 $sdk = $false
