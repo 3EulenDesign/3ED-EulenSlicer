@@ -185,8 +185,8 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
 4. **Eigener Runner** einrichten, siehe nächster Abschnitt (oder Variable `EULEN_RUNNER` =
    `github`, dann baut GitHub selbst).
 5. *Actions → EulenSlicer bauen → Run workflow.* Der erste Lauf baut die Abhängigkeiten von
-   OrcaSlicer (bei GitHub gut 1,5 Stunden) und hebt sie auf, danach geht es schneller (bei
-   GitHub etwa eine Stunde). Die MSI liegt danach im Portal (*Versionen*) und 14 Tage unter
+   OrcaSlicer und hebt sie auf. Auf dem eigenen Runner dauert das knapp eine Stunde, danach
+   gut eine halbe (bei GitHub gut 2,5 Stunden, danach etwa 1¼). Die MSI liegt danach im Portal (*Versionen*) und 14 Tage unter
    *Artifacts* des Laufs.
 
 Den Schlüssel nur einmal am Anfang erzeugen: Jeder EulenSlicer kennt den öffentlichen
@@ -216,7 +216,8 @@ Windows (VM auf Proxmox, Labels `self-hosted`, `Windows`, `X64`). „Prüfen“ 
    schaltet lange Pfade ein, startet den Runner-Dienst neu und prüft am Ende alles.
    Mit `-DefenderAusnahme C:\a` baut die VM deutlich schneller.
 4. **Erster Lauf:** *Actions → EulenSlicer bauen → Run workflow* (ohne „freigeben“ oder mit
-   „Nur bauen“). Er baut die Abhängigkeiten einmal; „Kompilieren“ geht erst danach.
+   „Nur bauen“). Er baut die Abhängigkeiten einmal; „Kompilieren“ geht erst danach. Auf
+   `win-build-01` (22.10.2026): Abhängigkeiten 24 Minuten, Slicer 27 Minuten, alles 54 Minuten.
 
 Jeder Windows-Lauf prüft zuerst mit `runner-pruefen.ps1`, ob alles da ist. Fehlt etwas,
 steht es oben im Lauf (z. B. „Runner: Strawberry Perl … fehlt“), und der Lauf hört gleich

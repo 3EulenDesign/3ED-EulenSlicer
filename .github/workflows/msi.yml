@@ -1,6 +1,6 @@
 # Nur die MSI neu packen – aus dem Programmordner eines Laufs von „EulenSlicer bauen“
 # (der hebt ihn 3 Tage als „EulenSlicer-Programm-b<Build>“ auf). Für Änderungen am
-# Installer, ohne den Slicer neu zu übersetzen: ein paar Minuten statt anderthalb Stunden.
+# Installer, ohne den Slicer neu zu übersetzen: ein paar Minuten statt eines ganzen Builds.
 #
 # Die Build-Nummer bleibt die des ursprünglichen Laufs (sie steckt im Programm).
 # Läuft wie „EulenSlicer bauen“ auf dem eigenen Runner (mit EULEN_RUNNER = github bei GitHub).

@@ -202,7 +202,7 @@ jobs:
               echo "Gleich läuft „Prüfen“ auf diesem Zweig. Ist alles grün, wird dieser Pull Request automatisch zusammengeführt und „EulenSlicer bauen“ gestartet. Wenn nicht, bleibt er offen, und hier steht warum."
             fi
             echo
-            echo "Die neue Version kommt **zurückgezogen** ins Portal – erst auf einem Rechner testen, dann unter 3 Eulen → EulenSlicer → Versionen freigeben. Der erste Build mit einer neuen OrcaSlicer-Version baut die Abhängigkeiten neu (gut 1,5 Stunden)."
+            echo "Die neue Version kommt **zurückgezogen** ins Portal – erst auf einem Rechner testen, dann unter 3 Eulen → EulenSlicer → Versionen freigeben. Der erste Build mit einer neuen OrcaSlicer-Version baut die Abhängigkeiten neu (auf dem eigenen Runner knapp eine Stunde)."
           } > ../beschreibung.md
           url=$(gh pr create --title "OrcaSlicer $NEU" --body-file ../beschreibung.md --base main --head "$ZWEIG")
           echo "$url"
@@ -283,4 +283,4 @@ jobs:
             kommentar "⚠️ Zusammengeführt, aber „EulenSlicer bauen“ ließ sich nicht starten ([Lauf]($LAUF)). Bitte von Hand starten: Actions → [EulenSlicer bauen]($BAUEN) → Run workflow, „freigeben“ aus."
             exit 1
           fi
-          kommentar "✅ „Prüfen“ grün, automatisch zusammengeführt. [„EulenSlicer bauen“]($BAUEN) läuft jetzt (gut 1,5 Stunden) und lädt die neue Version **zurückgezogen** ins Portal. Wie der Build ausgeht, steht danach hier – kommt nach drei Stunden nichts, unter Actions nachsehen (ein zweiter, wartender Build kann ihn verdrängt haben)."
+          kommentar "✅ „Prüfen“ grün, automatisch zusammengeführt. [„EulenSlicer bauen“]($BAUEN) läuft jetzt (knapp eine Stunde, solange der eigene Runner frei ist) und lädt die neue Version **zurückgezogen** ins Portal. Wie der Build ausgeht, steht danach hier – kommt nach drei Stunden nichts, unter Actions nachsehen (ein zweiter, wartender Build kann ihn verdrängt haben)."

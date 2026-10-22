@@ -1,7 +1,7 @@
 # Schneller Kompilier-Check auf Windows: übersetzt nur die Dateien, die der
 # EulenSlicer ändert oder neu bringt (quellen/*.cpp und die .cpp-Dateien aus
 # skripte/anwenden.py) – ohne den Rest von OrcaSlicer zu bauen und ohne Linken.
-# Dauert etwa eine Viertelstunde statt anderthalb Stunden.
+# Dauert ein paar Minuten statt einer halben Stunde für den ganzen Build.
 #
 # Braucht die Abhängigkeiten, die „EulenSlicer bauen“ aufhebt: auf dem eigenen Runner auf
 # seiner Platte, bei GitHub (Variable EULEN_RUNNER = github) im Zwischenspeicher.
@@ -91,6 +91,10 @@ jobs:
         uses: lukka/get-cmake@latest
         with:
           cmakeVersion: "~4.3.0"
+          # Auf dem eigenen Runner im Werkzeug-Ordner statt im Zwischenspeicher von GitHub: dessen
+          # tar scheitert dort am tar aus Git (Warnung „Failed to save“).
+          useCloudCache: ${{ runner.environment == 'github-hosted' }}
+          useLocalCache: ${{ runner.environment == 'self-hosted' }}
 
       - name: MSVC-Umgebung
         uses: ilammy/msvc-dev-cmd@v1

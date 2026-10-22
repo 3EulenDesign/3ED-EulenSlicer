@@ -15,9 +15,9 @@
 #
 # Läuft auf dem eigenen Windows-Runner (self-hosted, Windows, X64); mit der Variable
 # EULEN_RUNNER = github wieder auf windows-latest bei GitHub. Der erste Lauf baut die
-# Abhängigkeiten von OrcaSlicer (bei GitHub gut 1,5 Stunden) und hebt sie auf – bei GitHub
-# im Zwischenspeicher, auf dem eigenen Runner auf seiner Platte (skripte/abhaengigkeiten.ps1).
-# Danach dauert ein Lauf bei GitHub etwa eine Stunde.
+# Abhängigkeiten von OrcaSlicer und hebt sie auf – bei GitHub im Zwischenspeicher, auf dem
+# eigenen Runner auf seiner Platte (skripte/abhaengigkeiten.ps1). Auf dem eigenen Runner dauert
+# der erste Lauf knapp eine Stunde, danach gut eine halbe (bei GitHub gut 2,5 bzw. 1,25 Stunden).
 name: EulenSlicer bauen
 
 on:
@@ -152,6 +152,10 @@ jobs:
         uses: lukka/get-cmake@latest
         with:
           cmakeVersion: "~4.3.0"
+          # Auf dem eigenen Runner im Werkzeug-Ordner statt im Zwischenspeicher von GitHub: dessen
+          # tar scheitert dort am tar aus Git (Warnung „Failed to save“).
+          useCloudCache: ${{ runner.environment == 'github-hosted' }}
+          useLocalCache: ${{ runner.environment == 'self-hosted' }}
 
       - name: MSBuild
         uses: microsoft/setup-msbuild@v3
