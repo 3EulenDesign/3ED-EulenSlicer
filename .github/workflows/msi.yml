@@ -3,6 +3,7 @@
 # Installer, ohne den Slicer neu zu übersetzen: ein paar Minuten statt anderthalb Stunden.
 #
 # Die Build-Nummer bleibt die des ursprünglichen Laufs (sie steckt im Programm).
+# Läuft wie „EulenSlicer bauen“ auf dem eigenen Runner (mit EULEN_RUNNER = github bei GitHub).
 name: MSI neu packen
 
 on:
@@ -32,13 +33,26 @@ permissions:
 jobs:
   msi:
     name: MSI
-    runs-on: windows-latest
+    runs-on: ${{ vars.EULEN_RUNNER == 'github' && 'windows-latest' || fromJSON('["self-hosted", "Windows", "X64"]') }}
     timeout-minutes: 60
     steps:
       - name: EulenSlicer-Repo holen
         uses: actions/checkout@v6
         with:
           path: eulen
+
+      - name: Eigener Runner – ist alles installiert?
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        run: pwsh eulen/skripte/runner-pruefen.ps1 -Fuer msi
+
+      - name: Reste vom letzten Lauf entfernen
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        run: |
+          # Der eigene Runner behält den Arbeitsordner: alter Programmordner und alte MSIs weg.
+          if (Test-Path programm) { Remove-Item programm -Recurse -Force }
+          Get-ChildItem -File -Filter 'EulenSlicer-*' | Remove-Item -Force
 
       - name: Programmordner aus dem Lauf holen
         uses: actions/download-artifact@v8

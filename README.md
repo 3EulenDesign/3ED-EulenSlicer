@@ -69,12 +69,15 @@ skripte/
   bilder.py                  erzeugt bilder/ (Eulen aus dem Theme, Schriftzug Poppins Bold als Pfad; nur bei Änderungen)
   hochladen.py               signiert die MSI und lädt sie in Stücken ins Portal
   msi.ps1                    baut die MSI aus dem Programmordner (WiX 5, absolute Pfade, Größenprüfung)
+  abhaengigkeiten.ps1        hebt die Abhängigkeiten von OrcaSlicer auf dem eigenen Runner auf und holt sie wieder
+  runner-pruefen.ps1         prüft, ob der eigene Runner alles hat (erster Schritt jedes Windows-Laufs dort)
+  runner-einrichten.ps1      richtet die VM des Runners ein (winget, einmal als Administrator)
 installer/EulenSlicer.wxs    MSI (WiX Toolset 5, Oberfläche Deutsch): für alle Konten, Startmenü, Desktop, eulenslicer://
 installer/Lizenz.rtf         Lizenzhinweis im ersten Fenster der Installation
 tests/kern_test.cpp          Test für den Kern des Update-Kanals (läuft in „Prüfen“)
 tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in „Prüfen“)
 .github/workflows/
-  bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal
+  bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal (eigener Runner)
   msi.yml                    „MSI neu packen“: nur die MSI aus dem Programmordner eines Laufs (Minuten statt Stunden)
   kompilieren.yml            „Kompilieren“: übersetzt nur die geänderten Dateien (etwa 15 Minuten), bei jedem Push auf quellen/
   pruefen.yml                „Prüfen“: Kern-Test, Skripte, passen die Stellen zu OrcaSlicer?
@@ -174,17 +177,74 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
    | Secret | `SIGNATUR_SCHLUESSEL` | der private Schlüssel mit den Zeilen `BEGIN`/`END PRIVATE KEY` |
    | Variable (optional) | `BUILD_OFFSET` | Zahl, die zur Lauf-Nummer addiert wird (falls die Build-Nummern einmal neu anfangen müssen) |
    | Variable (optional) | `ORCA_AUTOMATISCH` | `nein`: „OrcaSlicer-Update“ öffnet nur den Pull Request und führt ihn nicht selbst zusammen |
+   | Variable (optional) | `EULEN_RUNNER` | `github`: die Windows-Workflows laufen auf `windows-latest` bei GitHub statt auf dem eigenen Runner |
 
 3. *Settings → Actions → General → Workflow permissions:* „Allow GitHub Actions to create
    and approve pull requests“ anhaken (für „OrcaSlicer-Update“). Ohne diesen Haken kann es
    keinen Pull Request anlegen und damit auch nichts automatisch übernehmen.
-4. *Actions → EulenSlicer bauen → Run workflow.* Der erste Lauf baut die Abhängigkeiten von
-   OrcaSlicer (gut 1,5 Stunden) und legt sie in den Zwischenspeicher, danach etwa eine Stunde.
-   Die MSI liegt danach im Portal (*Versionen*) und 14 Tage unter *Artifacts* des Laufs.
+4. **Eigener Runner** einrichten, siehe nächster Abschnitt (oder Variable `EULEN_RUNNER` =
+   `github`, dann baut GitHub selbst).
+5. *Actions → EulenSlicer bauen → Run workflow.* Der erste Lauf baut die Abhängigkeiten von
+   OrcaSlicer (bei GitHub gut 1,5 Stunden) und hebt sie auf, danach geht es schneller (bei
+   GitHub etwa eine Stunde). Die MSI liegt danach im Portal (*Versionen*) und 14 Tage unter
+   *Artifacts* des Laufs.
 
 Den Schlüssel nur einmal am Anfang erzeugen: Jeder EulenSlicer kennt den öffentlichen
 Schlüssel, mit dem er gebaut wurde. Ein neuer Schlüssel heißt, dass alle Rechner die
 nächste Version einmal von Hand installieren müssen.
+
+## Eigener Runner
+
+„EulenSlicer bauen“, „Kompilieren“ und „MSI neu packen“ laufen auf einem eigenen Runner mit
+Windows (VM auf Proxmox, Labels `self-hosted`, `Windows`, `X64`). „Prüfen“ und
+„OrcaSlicer-Update“ laufen weiter bei GitHub unter Linux.
+
+**Einrichten**
+
+1. **VM:** Windows 11 oder Windows Server 2025, 64 Bit, mindestens 100 GB freier Platz
+   (Abhängigkeiten, Build und das Lager der Abhängigkeiten). Mehr Kerne bauen schneller.
+2. **Runner registrieren:** dieses Repo → *Settings → Actions → Runners → New self-hosted
+   runner → Windows x64*. Die Befehle von dort in `C:\a` ausführen (kurze Pfade – lange
+   scheitern beim Bauen der Abhängigkeiten) und bei `config.cmd` als Dienst einrichten.
+   Unser Runner hängt an der **Organisation**, in einer Runner-Gruppe mit diesem Repo
+   (*Organisation → Settings → Actions → Runner groups*). Weil das Repo öffentlich ist, muss
+   bei der Gruppe zusätzlich **Allow public repositories** an sein – sonst bleiben die Läufe
+   als *Queued* stehen. Alternativ den Runner direkt am Repo registrieren.
+3. **Programme:** Repo auf die VM holen und in einer PowerShell als Administrator
+   `skripte\runner-einrichten.ps1` ausführen. Es installiert über winget Visual Studio 2022
+   Build Tools mit C++, Git, Python 3.12, PowerShell 7, .NET SDK 8 und Strawberry Perl,
+   schaltet lange Pfade ein, startet den Runner-Dienst neu und prüft am Ende alles.
+   Mit `-DefenderAusnahme C:\a` baut die VM deutlich schneller.
+4. **Erster Lauf:** *Actions → EulenSlicer bauen → Run workflow* (ohne „freigeben“ oder mit
+   „Nur bauen“). Er baut die Abhängigkeiten einmal; „Kompilieren“ geht erst danach.
+
+Jeder Windows-Lauf prüft zuerst mit `runner-pruefen.ps1`, ob alles da ist. Fehlt etwas,
+steht es oben im Lauf (z. B. „Runner: Strawberry Perl … fehlt“), und der Lauf hört gleich
+auf statt nach einer Stunde.
+
+**Sicherheit – das Repo ist öffentlich.** Ein Pull Request aus einem Fork kann die
+Workflows ändern; liefe er auf der VM, käme er dort an alles, was spätere Läufe sehen,
+auch an `SIGNATUR_SCHLUESSEL`, mit dem jedes Update signiert wird. Deshalb:
+
+- *Settings → Actions → General → Approval for running fork pull request workflows from
+  contributors:* **Require approval for all external contributors**. Dann läuft kein fremder
+  Pull Request, ohne dass ihn jemand freigibt – vorher die Änderungen unter `.github/` ansehen.
+- Die VM in ein eigenes Netz (VLAN) ohne Zugriff auf andere Rechner, nur ins Internet.
+- Auf der VM nichts anderes und keine anderen Zugangsdaten; der Runner nur für dieses Repo.
+
+Die eigenen Workflows starten auf der VM nie durch einen Pull Request: „Kompilieren“ bei
+Pushes ins Repo, die anderen von Hand, bei Tags oder über „OrcaSlicer-Update“.
+
+**Abhängigkeiten auf dem Runner:** Statt im Zwischenspeicher von GitHub liegen sie auf der
+VM unter `C:\a\_work\_tool\eulen\d-<Hash>` (Werkzeug-Ordner des Runners; ein anderer Ort
+über die Umgebungsvariable `EULEN_LAGER` auf der VM). Der Hash kommt aus `deps/` von
+OrcaSlicer – nach einem OrcaSlicer-Update baut der nächste Lauf sie einmal neu. Behalten
+werden die zwei zuletzt benutzten Stände. „Kompilieren“ nimmt sie direkt von dort.
+
+**Wenn die VM aus ist:** Die Läufe warten als *Queued* (bis zu 24 Stunden). Wartet ein Lauf,
+obwohl die VM läuft, passt die Registrierung nicht (Runner offline, Repo nicht in der
+Gruppe, Gruppe ohne „Allow public repositories“). Zurück zu GitHub: Variable `EULEN_RUNNER` = `github` – das gilt
+für alle drei Windows-Workflows und kostet bei einem öffentlichen Repo nichts.
 
 ## Bauen
 

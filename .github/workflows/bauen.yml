@@ -13,8 +13,11 @@
 #   Variablen: PORTAL_API, UPDATE_PUBKEY (optional BUILD_OFFSET)
 #   Secrets:   PORTAL_ZUGANG, SIGNATUR_SCHLUESSEL
 #
-# Der erste Lauf baut die Abhängigkeiten von OrcaSlicer (gut 1,5 Stunden) und legt
-# sie in den Zwischenspeicher; danach dauert ein Lauf etwa eine Stunde.
+# Läuft auf dem eigenen Windows-Runner (self-hosted, Windows, X64); mit der Variable
+# EULEN_RUNNER = github wieder auf windows-latest bei GitHub. Der erste Lauf baut die
+# Abhängigkeiten von OrcaSlicer (bei GitHub gut 1,5 Stunden) und hebt sie auf – bei GitHub
+# im Zwischenspeicher, auf dem eigenen Runner auf seiner Platte (skripte/abhaengigkeiten.ps1).
+# Danach dauert ein Lauf bei GitHub etwa eine Stunde.
 name: EulenSlicer bauen
 
 on:
@@ -54,8 +57,9 @@ jobs:
     name: Windows x64
     # Bei Pushes nur, wenn GitHub schon eingerichtet ist (sonst gäbe jeder Push einen roten Lauf).
     if: github.event_name != 'push' || vars.PORTAL_API != ''
-    runs-on: windows-latest
-    timeout-minutes: 355
+    runs-on: ${{ vars.EULEN_RUNNER == 'github' && 'windows-latest' || fromJSON('["self-hosted", "Windows", "X64"]') }}
+    # Bei GitHub ist nach 6 Stunden Schluss; der eigene Runner darf beim ersten Mal länger.
+    timeout-minutes: ${{ vars.EULEN_RUNNER == 'github' && 355 || 720 }}
     env:
       PORTAL_API: ${{ vars.PORTAL_API }}
       UPDATE_PUBKEY: ${{ vars.UPDATE_PUBKEY }}
@@ -64,6 +68,15 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: eulen
+
+      - name: Eigener Runner – ist alles installiert?
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        run: |
+          pwsh eulen/skripte/runner-pruefen.ps1 -Fuer bauen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Der eigene Runner behält den Arbeitsordner: alte MSIs weg (eulen/ und orca/ räumt checkout auf).
+          Get-ChildItem -File -Filter 'EulenSlicer-*' | Remove-Item -Force
 
       - name: Einstellungen prüfen
         shell: pwsh
@@ -118,10 +131,21 @@ jobs:
 
       - name: Abhängigkeiten aus dem Zwischenspeicher
         id: deps
+        if: runner.environment == 'github-hosted'
         uses: actions/cache/restore@v5
         with:
           path: orca/deps/build/OrcaSlicer_dep
           key: eulen-windows-x64-deps-${{ hashFiles('orca/deps/**') }}
+
+      - name: Abhängigkeiten vom eigenen Runner
+        id: lager
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        env:
+          DEPS_HASH: ${{ hashFiles('orca/deps/**') }}
+        run: |
+          "hash=$env:DEPS_HASH" | Out-File -Append -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          pwsh eulen/skripte/abhaengigkeiten.ps1 -Holen -Hash $env:DEPS_HASH -Ziel orca/deps/build/OrcaSlicer_dep
 
       - name: CMake
         uses: lukka/get-cmake@latest
@@ -132,20 +156,26 @@ jobs:
         uses: microsoft/setup-msbuild@v3
 
       - name: Abhängigkeiten bauen (nur beim ersten Mal oder nach einem OrcaSlicer-Update)
-        if: steps.deps.outputs.cache-hit != 'true'
+        if: steps.deps.outputs.cache-hit != 'true' && steps.lager.outputs.da != 'true'
         working-directory: orca
         shell: pwsh
         run: |
-          choco install strawberryperl -y --no-progress
+          # OpenSSL braucht Strawberry Perl; auf dem eigenen Runner ist es schon installiert.
+          if ('${{ runner.environment }}' -eq 'github-hosted') { choco install strawberryperl -y --no-progress }
           .\build_release_vs.bat deps
           if (-not (Test-Path deps/build/OrcaSlicer_dep)) { Write-Output "::error::Die Abhängigkeiten wurden nicht gebaut."; exit 1 }
 
       - name: Abhängigkeiten in den Zwischenspeicher
-        if: steps.deps.outputs.cache-hit != 'true'
+        if: runner.environment == 'github-hosted' && steps.deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: orca/deps/build/OrcaSlicer_dep
           key: ${{ steps.deps.outputs.cache-primary-key }}
+
+      - name: Abhängigkeiten auf dem eigenen Runner aufheben
+        if: runner.environment == 'self-hosted' && steps.lager.outputs.da != 'true'
+        shell: pwsh
+        run: pwsh eulen/skripte/abhaengigkeiten.ps1 -Ablegen -Hash '${{ steps.lager.outputs.hash }}' -Quelle orca/deps/build/OrcaSlicer_dep
 
       - name: EulenSlicer bauen
         working-directory: orca

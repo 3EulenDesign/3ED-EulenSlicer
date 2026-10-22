@@ -3,7 +3,8 @@
 # skripte/anwenden.py) – ohne den Rest von OrcaSlicer zu bauen und ohne Linken.
 # Dauert etwa eine Viertelstunde statt anderthalb Stunden.
 #
-# Braucht die Abhängigkeiten im Zwischenspeicher (legt „EulenSlicer bauen“ an).
+# Braucht die Abhängigkeiten, die „EulenSlicer bauen“ aufhebt: auf dem eigenen Runner auf
+# seiner Platte, bei GitHub (Variable EULEN_RUNNER = github) im Zwischenspeicher.
 name: Kompilieren
 
 on:
@@ -24,7 +25,7 @@ permissions:
 jobs:
   kompilieren:
     name: Windows x64 (nur geänderte Dateien)
-    runs-on: windows-latest
+    runs-on: ${{ vars.EULEN_RUNNER == 'github' && 'windows-latest' || fromJSON('["self-hosted", "Windows", "X64"]') }}
     timeout-minutes: 90
     env:
       PORTAL_API: ${{ vars.PORTAL_API }}
@@ -35,6 +36,11 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: eulen
+
+      - name: Eigener Runner – ist alles installiert?
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        run: pwsh eulen/skripte/runner-pruefen.ps1 -Fuer kompilieren
 
       - name: Version von OrcaSlicer
         id: orca
@@ -57,11 +63,28 @@ jobs:
         run: python eulen/skripte/anwenden.py --orca orca
 
       - name: Abhängigkeiten aus dem Zwischenspeicher
+        if: runner.environment == 'github-hosted'
         uses: actions/cache/restore@v5
         with:
           path: orca/deps/build/OrcaSlicer_dep
           key: eulen-windows-x64-deps-${{ hashFiles('orca/deps/**') }}
           fail-on-cache-miss: true
+
+      - name: Abhängigkeiten vom eigenen Runner
+        id: lager
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        env:
+          DEPS_HASH: ${{ hashFiles('orca/deps/**') }}
+        run: |
+          # Kein Kopieren nötig: CMake bekommt den Ordner auf dem Runner direkt (DEP_BUILD_DIR).
+          pwsh eulen/skripte/abhaengigkeiten.ps1 -Ordner -Hash $env:DEPS_HASH
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Select-String -Path $env:GITHUB_OUTPUT -Pattern '^da=true' -Quiet)) {
+            # Keine typografischen Anführungszeichen: PowerShell hält sie für echte.
+            Write-Output "::error::Auf diesem Runner liegen noch keine Abhängigkeiten für diese OrcaSlicer-Version. Einmal Actions → EulenSlicer bauen laufen lassen (geht auch mit Nur bauen), danach klappt Kompilieren."
+            exit 1
+          }
 
       - name: CMake und Ninja
         uses: lukka/get-cmake@latest
@@ -79,7 +102,8 @@ jobs:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
           # OrcaSlicer sucht die Abhängigkeiten sonst unter deps/<Name des Build-Ordners>.
-          $deps = (Resolve-Path orca/deps/build).Path -replace '\\', '/'
+          $deps = if ('${{ steps.lager.outputs.ordner }}') { '${{ steps.lager.outputs.ordner }}' } else { (Resolve-Path orca/deps/build).Path }
+          $deps = $deps -replace '\\', '/'
           cmake -S orca -B orca/build-check -G Ninja -DCMAKE_BUILD_TYPE=Release -DORCA_TOOLS=OFF "-DDEP_BUILD_DIR=$deps"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

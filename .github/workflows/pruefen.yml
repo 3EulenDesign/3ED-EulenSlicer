@@ -1,7 +1,7 @@
 # Schnelle Prüfung ohne Windows-Build (ein paar Minuten, Linux):
 #  - Kern des Update-Kanals bauen und testen (SHA-256, Ed25519, Antwort des Portals),
 #  - Kern der Portal-Verbindung testen (Adressen, Fehlertexte, Abgleich der Profile),
-#  - Python-Skripte übersetzen,
+#  - Python-Skripte übersetzen, PowerShell-Skripte auf Syntaxfehler prüfen,
 #  - passen alle Stellen von skripte/anwenden.py zur OrcaSlicer-Version in orca.version?
 #  - ist der Installer gültiges XML?
 # „OrcaSlicer-Update“ ruft es für den Zweig einer neuen OrcaSlicer-Version auf (workflow_call).
@@ -49,6 +49,24 @@ jobs:
 
       - name: Python-Skripte
         run: python3 -m py_compile eulen/skripte/anwenden.py eulen/skripte/hochladen.py
+
+      - name: PowerShell-Skripte
+        shell: pwsh
+        run: |
+          # Syntaxfehler und typografische Anführungszeichen außerhalb von Kommentaren: PowerShell
+          # hält sie für echte und zerlegt die Zeichenkette still (Windows PowerShell 5.1 und 7).
+          $typo = '[\u201C\u201D\u201E\u2018\u2019\u201A]'
+          $fehler = 0
+          foreach ($datei in Get-ChildItem eulen/skripte -Filter *.ps1) {
+            $t = $null; $e = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($datei.FullName, [ref]$t, [ref]$e)
+            $meldungen = @($e | ForEach-Object { @{ Zeile = $_.Extent.StartLineNumber; Text = $_.Message } })
+            $meldungen += @($t | Where-Object { $_.Kind -ne 'Comment' -and $_.Extent.Text -match $typo } |
+              ForEach-Object { @{ Zeile = $_.Extent.StartLineNumber; Text = 'Typografisches Anführungszeichen im Code (nur in Kommentaren erlaubt)' } })
+            foreach ($m in $meldungen) { Write-Output "::error file=skripte/$($datei.Name),line=$($m.Zeile)::$($m.Text)"; $fehler++ }
+            if (-not $meldungen) { Write-Output "$($datei.Name) ok" }
+          }
+          if ($fehler) { exit 1 }
 
       - name: Stellen in OrcaSlicer
         run: python3 eulen/skripte/anwenden.py --orca orca --pruefen
