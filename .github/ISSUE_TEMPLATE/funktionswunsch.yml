@@ -1,0 +1,67 @@
+name: Funktionswunsch
+description: Eine Idee oder neue Funktion für den EulenSlicer vorschlagen
+type: Feature
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für die Idee! Kurz und konkret reicht – wenn etwas unklar ist, fragen wir nach.
+  - type: dropdown
+    id: bereich
+    attributes:
+      label: Bereich
+      description: Wo im EulenSlicer gehört der Wunsch hin?
+      options:
+        - An 3 Eulen senden
+        - Anmelden / Konto / Werkstatt-Code
+        - Startseite / Meine Aufträge
+        - Reiter „Gerät“ (Drucker der Werkstatt)
+        - Profile aus dem Portal
+        - Updates / Installation (MSI)
+        - Aussehen (Eulen, Farben, Texte)
+        - Slicen / Funktionen von OrcaSlicer
+        - Sonstiges
+    validations:
+      required: true
+  - type: textarea
+    id: wunsch
+    attributes:
+      label: Was soll der EulenSlicer können?
+      placeholder: z. B. „Beim Senden möchte ich mehrere Platten auf einmal als einen Auftrag schicken.“
+    validations:
+      required: true
+  - type: textarea
+    id: wozu
+    attributes:
+      label: Wozu? Welches Problem löst das?
+      description: Was machst du heute stattdessen, und was stört daran?
+    validations:
+      required: true
+  - type: dropdown
+    id: wichtig
+    attributes:
+      label: Wie wichtig ist es dir?
+      options:
+        - Wäre schön
+        - Hilft im Alltag spürbar
+        - Ohne geht es kaum
+    validations:
+      required: false
+  - type: textarea
+    id: ideen
+    attributes:
+      label: Ideen, Beispiele, Screenshots
+      description: Wie könnte es aussehen? Bilder einfach hier hineinziehen.
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: Steht unter „3 Eulen → Über EulenSlicer“ (z. B. „Build 12“). Optional.
+  - type: checkboxes
+    id: suche
+    attributes:
+      label: Schon gesucht?
+      options:
+        - label: Ich habe in den offenen Issues nachgesehen, ob es den Wunsch schon gibt.
+          required: true
