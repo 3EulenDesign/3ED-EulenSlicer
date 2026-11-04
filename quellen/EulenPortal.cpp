@@ -1201,6 +1201,17 @@ void eulen_fenster(const std::string& seite, int auftrag)
     f->Show();
 }
 
+bool eulen_senden_moeglich()
+{
+    if (!eulen_portal_aktiv())
+        return false;
+    Plater* plater = wxGetApp().plater();
+    if (plater == nullptr || plater->is_background_process_slicing())
+        return false;
+    PartPlate* platte = plater->get_partplate_list().get_curr_plate();
+    return platte != nullptr && platte->is_slice_result_ready_for_print();
+}
+
 void eulen_senden()
 {
     if (!eulen_portal_aktiv()) {
@@ -1220,6 +1231,18 @@ void eulen_senden()
         melden("Bitte warten, bis das Slicen fertig ist.");
         return;
     }
+    // Gesendet wird nur eine fehlerfrei geslicete Platte (mit G-Code), nie das bloße Modell.
+    PartPlateList& platten = plater->get_partplate_list();
+    PartPlate*     platte  = platten.get_curr_plate();
+    if (platte == nullptr || !platte->is_slice_result_valid()) {
+        melden("Erst die Platte slicen („Aktuelle Platte slicen“), dann an 3 Eulen senden.");
+        return;
+    }
+    if (!platte->is_slice_result_ready_for_print()) {
+        melden("Beim Slicen gab es einen Fehler (z. B. Teile außerhalb des Druckbereichs). "
+               "Erst beheben und neu slicen, dann an 3 Eulen senden.", wxOK | wxICON_WARNING);
+        return;
+    }
     if (g_sendet.exchange(true))
         return;
     struct Frei
@@ -1235,18 +1258,13 @@ void eulen_senden()
     std::string name = kern::profil_dateiname(into_u8(plater->get_project_name()));
     if (name.empty())
         name = "Projekt";
-    PartPlateList&    platten   = plater->get_partplate_list();
-    PartPlate*        platte    = platten.get_curr_plate();
-    const bool        geslicet  = platte != nullptr && platte->is_slice_result_valid();
-    const std::string dateiname = name + (geslicet ? ".gcode.3mf" : ".3mf");
+    const std::string dateiname = name + ".gcode.3mf";
     const fs::path    datei     = ordner / pfad(dateiname);
     fs::remove(datei, ec);
 
-    SaveStrategy strategie = SaveStrategy::Silence | SaveStrategy::SplitModel;
-    if (geslicet)
-        strategie = strategie | SaveStrategy::WithGcode;
-    BOOST_LOG_TRIVIAL(info) << "EulenSlicer: sende " << datei.string() << (geslicet ? " (geslicet)" : " (nur Modell)");
-    if (plater->export_3mf(datei, strategie, geslicet ? platten.get_curr_plate_index() : -1) < 0 || !fs::exists(datei, ec)) {
+    const SaveStrategy strategie = SaveStrategy::Silence | SaveStrategy::SplitModel | SaveStrategy::WithGcode;
+    BOOST_LOG_TRIVIAL(info) << "EulenSlicer: sende " << datei.string();
+    if (plater->export_3mf(datei, strategie, platten.get_curr_plate_index()) < 0 || !fs::exists(datei, ec)) {
         melden("Das Projekt ließ sich nicht als 3MF speichern.", wxOK | wxICON_ERROR);
         return;
     }
@@ -1284,8 +1302,8 @@ wxMenu* eulen_menue(wxWindow* fenster)
 {
     auto* menu  = new wxMenu();
     auto  aktiv = []() { return eulen_portal_aktiv(); };
-    append_menu_item(menu, wxID_ANY, utf8("An 3 Eulen senden"), utf8("Projekt als Druckauftrag ins 3 Eulen Portal schicken"),
-                     [](wxCommandEvent&) { eulen_senden(); }, "", fenster, aktiv, fenster);
+    append_menu_item(menu, wxID_ANY, utf8("An 3 Eulen senden"), utf8("Geslicete Platte als Druckauftrag ins 3 Eulen Portal schicken"),
+                     [](wxCommandEvent&) { eulen_senden(); }, "", fenster, []() { return eulen_senden_moeglich(); }, fenster);
     append_menu_item(menu, wxID_ANY, utf8("Meine Aufträge"), utf8("Status, Rückfragen und Dateien deiner Druckaufträge"),
                      [](wxCommandEvent&) { eulen_fenster("auftraege"); }, "", fenster, aktiv, fenster);
     append_menu_item(menu, wxID_ANY, utf8("Anmelden / Konto"), utf8("Mit dem Portal verbinden – mit Konto oder Werkstatt-Code"),

@@ -96,7 +96,7 @@ tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in
 | `src/slic3r/GUI/GUI_App.cpp` | nach dem Start `eulen_beim_start()` (Profile aus dem Portal) |
 | `src/slic3r/GUI/WebViewDialog.cpp` | Reiter „Start“: Seite aus dem Portal (`eulen_start_einrichten`), von dort nur Seiten des Portals (Links im Browser), Rückfall auf die normale Startseite bei Fehlern, Befehle `eulen_*` der Seite |
 | `src/slic3r/GUI/Monitor.cpp` | Reiter „Gerät“: mit Portal die Seite „geraete“ (`eulen_geraete_seite()`) über die ganze Fläche; die Reiter von OrcaSlicer (Status, Speicher, Firmware, HMS, Druckerauswahl) bleiben unsichtbar im Panel, damit alle Stellen, die sie ansprechen, weiterlaufen |
-| `src/slic3r/GUI/MainFrame.cpp`, `MainFrame.hpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und als Auswahl `eEulenSenden` des Knopfs „Drucken“ – mit Portal die Standardauswahl (`set_print_button_to_default`), auch ohne Slicen aktiv |
+| `src/slic3r/GUI/MainFrame.cpp`, `MainFrame.hpp` | Menü „3 Eulen“ statt „Sync Presets“ (OrcaCloud) in der Titelleiste, „An 3 Eulen senden“ im Dateimenü und als Auswahl `eEulenSenden` des Knopfs „Drucken“ – mit Portal die Standardauswahl (`set_print_button_to_default`), aktiv erst mit fehlerfrei geslicter Platte |
 | `src/slic3r/GUI/MainFrame.cpp` (Kalibrierung) | mit Portal kein Reiter „Kalibrierung“ (beim Start und in `show_device()`); das Panel bleibt unsichtbar angelegt, weil OrcaSlicer `m_calibration` anspricht |
 | `src/libslic3r/AppConfig.cpp` | Login-Spalte von OrcaCloud auf der normalen Startseite standardmäßig aus |
 | `resources/images/` | Startbild und Symbole aus `bilder/` (auch Symbol der `.exe` und der MSI) |

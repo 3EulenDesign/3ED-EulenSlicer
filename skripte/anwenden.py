@@ -201,7 +201,7 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         "        append_menu_item(fileMenu, wxID_ANY, wxString::FromUTF8(\"An 3 Eulen senden\"),\n"
         "            wxString::FromUTF8(\"Projekt als Druckauftrag ins 3 Eulen Portal schicken\"),\n"
         "            [](wxCommandEvent&) { eulen_senden(); }, \"\", nullptr,\n"
-        "            []() { return eulen_portal_aktiv(); }, this);\n",
+        "            []() { return eulen_senden_moeglich(); }, this);\n",
         1,
     ),
     (
@@ -226,7 +226,7 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
         1,
     ),
     # „An 3 Eulen senden“ als Auswahl des Knopfs „Drucken“ – und als Standard, wenn das Portal
-    # eingerichtet ist. Geht auch ungeslicet (dann das ganze Projekt).
+    # eingerichtet ist. Wie „Platte drucken“ erst, wenn die Platte fehlerfrei geslicet ist.
     (
         "src/slic3r/GUI/MainFrame.hpp",
         "        ePrintMultiMachine   = 9\n    };\n",
@@ -246,17 +246,13 @@ ERSETZUNGEN: list[tuple[str, str, str, int]] = [
     (
         "src/slic3r/GUI/MainFrame.cpp",
         "    else if (m_print_select == ePrintMultiMachine)\n    {\n        if (!current_plate->is_slice_result_ready_for_print())\n",
-        "    else if (m_print_select == eEulenSenden) // EulenSlicer: auch ungeslicet, nur nicht leer\n"
+        "    else if (m_print_select == eEulenSenden) // EulenSlicer: erst nach dem Slicen (wie ePrintPlate)\n"
         "    {\n"
-        "        enable = m_plater != nullptr && !m_plater->model().objects.empty();\n"
+        "        if (!current_plate->is_slice_result_ready_for_print())\n"
+        "            enable = false;\n"
+        "        enable = enable && !is_all_plates;\n"
         "    }\n"
         "    else if (m_print_select == ePrintMultiMachine)\n    {\n        if (!current_plate->is_slice_result_ready_for_print())\n",
-        1,
-    ),
-    (
-        "src/slic3r/GUI/MainFrame.cpp",
-        "    if (!can_print)\n        enable_print = false;\n",
-        "    if (!can_print && m_print_select != eEulenSenden) // EulenSlicer: Senden braucht kein Slicen\n        enable_print = false;\n",
         1,
     ),
     (

@@ -50,8 +50,11 @@ bool eulen_web_nachricht(wxWebView* browser, const wxString& nachricht, wxWindow
 // Fenster mit einer Seite des Portals öffnen (start, anmelden, senden, auftraege).
 void eulen_fenster(const std::string& seite, int auftrag = 0);
 
-// „An 3 Eulen senden“ (Menü, Knopf neben „Drucken“, Startseite).
+// „An 3 Eulen senden“ (Menü, Knopf neben „Drucken“, Startseite). Nur mit fehlerfrei
+// geslicter aktueller Platte – sonst ein Hinweis.
 void eulen_senden();
+// Geht „An 3 Eulen senden“ gerade (Portal da, aktuelle Platte fehlerfrei geslicet)? Für die Menüs.
+bool eulen_senden_moeglich();
 
 // Profile aus dem Portal abgleichen. vom_nutzer: Ergebnis auch melden, wenn sich nichts ändert.
 void eulen_profile_abgleichen(bool vom_nutzer);
