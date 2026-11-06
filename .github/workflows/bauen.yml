@@ -1,12 +1,23 @@
-# EulenSlicer für Windows bauen, als MSI packen, signieren und ins Portal laden.
+# EulenSlicer für Windows bauen, als MSI packen, signieren, ins Portal laden und als
+# GitHub-Release veröffentlichen.
 #
 # Läuft
 #  - von Hand: Actions → „EulenSlicer bauen“ → Run workflow (mit „freigeben“ und „Was ist neu?“),
 #  - bei einem Tag „v…“ (wird gleich freigegeben),
-#  - wenn sich auf main orca.version ändert (neue OrcaSlicer-Version; wird hochgeladen,
-#    aber zurückgezogen – im Portal zum Testen freigeben),
+#  - bei jedem Push auf main, außer wenn sich nur Doku, Tests oder andere Workflows ändern
+#    (wird hochgeladen, aber zurückgezogen – im Portal zum Testen freigeben),
 #  - von „OrcaSlicer-Update“ nach dem automatischen Zusammenführen (ebenfalls zurückgezogen;
-#    das Ergebnis steht danach als Kommentar im Pull Request).
+#    das Ergebnis steht danach als Kommentar im Pull Request),
+#  - bei Pull Requests: nur bauen (MSI unter Artifacts), nichts ins Portal, kein Release.
+#    Pull Requests laufen immer bei GitHub (windows-latest), nie auf dem eigenen Runner.
+#
+# GitHub-Release (für das HPG-Softwarecenter, „hpgsc sync“ liest das neueste Release):
+# Jede MSI, die ins Portal geht, kommt zusätzlich als Release „v<MSI-Version>“ (z. B. v2.4.23)
+# mit dem Asset „EulenSlicer-<MSI-Version>.msi“ – dieselbe Datei wie im Portal, als „Latest“.
+# Nur wenn Bauen und „Prüfen“ grün sind. Gibt es den Tag schon oder ist die Version nicht
+# höher als das neueste Release, bricht der Lauf vor dem Upload ins Portal ab.
+# Den Tag legt das Release mit GITHUB_TOKEN an – das startet diesen Workflow nicht noch einmal
+# (mit einem eigenen Token statt GITHUB_TOKEN gäbe es über „tags: v*“ eine Schleife).
 #
 # Braucht unter Settings → Secrets and variables → Actions (Werte im Portal unter
 # 3 Eulen → EulenSlicer → GitHub):
@@ -42,12 +53,34 @@ on:
   push:
     tags: ["v*"]
     branches: [main]
+    # Gilt nur für main (bei Tags wertet GitHub keine Pfade aus). Ein „!“ nimmt aus,
+    # eine spätere Zeile ohne „!“ nimmt wieder auf.
     paths:
-      - "orca.version"
+      - "**"
+      - "!README.md"
+      - "!LICENSE.txt"
+      - "!.gitignore"
+      - "!tests/**"
+      - "!bilder/vorschau/**"
+      - "!.github/**"
+      - ".github/workflows/bauen.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**"
+      - "!README.md"
+      - "!LICENSE.txt"
+      - "!.gitignore"
+      - "!tests/**"
+      - "!bilder/vorschau/**"
+      - "!.github/**"
+      - ".github/workflows/bauen.yml"
 
+# Pull Requests in eigener Gruppe: Sonst würde ein wartender Pull-Request-Lauf einen
+# wartenden Lauf für main (mit Release) verdrängen.
 concurrency:
-  group: eulenslicer-bauen
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('eulenslicer-bauen-pr-{0}', github.event.pull_request.number) || 'eulenslicer-bauen' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -57,12 +90,20 @@ jobs:
     name: Windows x64
     # Bei Pushes nur, wenn GitHub schon eingerichtet ist (sonst gäbe jeder Push einen roten Lauf).
     if: github.event_name != 'push' || vars.PORTAL_API != ''
-    runs-on: ${{ vars.EULEN_RUNNER == 'github' && 'windows-latest' || fromJSON('["self-hosted", "Windows", "X64"]') }}
+    # Pull Requests nie auf dem eigenen Runner (das Repo ist öffentlich, siehe README → Sicherheit).
+    runs-on: ${{ (github.event_name == 'pull_request' || vars.EULEN_RUNNER == 'github') && 'windows-latest' || fromJSON('["self-hosted", "Windows", "X64"]') }}
     # Bei GitHub ist nach 6 Stunden Schluss; der eigene Runner darf beim ersten Mal länger.
-    timeout-minutes: ${{ vars.EULEN_RUNNER == 'github' && 355 || 720 }}
+    timeout-minutes: ${{ (github.event_name == 'pull_request' || vars.EULEN_RUNNER == 'github') && 355 || 720 }}
     env:
       PORTAL_API: ${{ vars.PORTAL_API }}
       UPDATE_PUBKEY: ${{ vars.UPDATE_PUBKEY }}
+      # Pull Request oder „Nur bauen“: MSI nur unter Artifacts, nichts ins Portal, kein Release.
+      NUR_BAUEN: ${{ github.event_name == 'pull_request' || inputs.nur_bauen == true }}
+    outputs:
+      release: ${{ steps.release.outputs.release }}
+      version: ${{ steps.msi.outputs.version }}
+      msi_name: ${{ steps.msi.outputs.name }}
+      sha256: ${{ steps.msi.outputs.sha256 }}
     steps:
       - name: EulenSlicer-Repo holen
         uses: actions/checkout@v6
@@ -91,7 +132,7 @@ jobs:
           if (-not $env:PORTAL_ZUGANG) { $fehlt += 'Secret PORTAL_ZUGANG' }
           if (-not $env:SIGNATUR_SCHLUESSEL) { $fehlt += 'Secret SIGNATUR_SCHLUESSEL' }
           if ($fehlt.Count -gt 0) {
-            if ("${{ inputs.nur_bauen }}" -eq "true") {
+            if ($env:NUR_BAUEN -eq 'true') {
               Write-Output "::warning::Nur bauen: Es fehlt $($fehlt -join ', '). Die MSI taugt zum Testen, sucht aber ohne PORTAL_API/UPDATE_PUBKEY keine Updates."
             } else {
               Write-Output "::error::Es fehlt unter Settings → Secrets and variables → Actions: $($fehlt -join ', '). Die Werte stehen im Portal unter 3 Eulen → EulenSlicer → GitHub."
@@ -207,6 +248,12 @@ jobs:
         shell: pwsh
         run: pwsh eulen/skripte/msi.ps1 -Quelle orca/build/OrcaSlicer -Version '${{ steps.anpassen.outputs.orca_version }}' -Build $env:EULEN_BUILD
 
+      - name: MSI prüfen (Version, UpgradeCode, pro Maschine, Major Upgrade)
+        id: msi
+        shell: pwsh
+        # Windows PowerShell 5.1: dort ist der COM-Zugriff auf Windows Installer erprobt.
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File eulen\skripte\msi-pruefen.ps1 -Msi $env:MSI -Version $env:MSI_VERSION
+
       - name: MSI aufheben (14 Tage unter „Artifacts“)
         uses: actions/upload-artifact@v7
         with:
@@ -214,8 +261,42 @@ jobs:
           path: ${{ env.MSI }}
           retention-days: 14
 
+      # Vor dem Portal: Gibt es den Tag schon oder ist die Version nicht höher als das neueste
+      # Release, hört der Lauf hier auf – sonst stünde im Portal etwas, das es auf GitHub nicht gibt.
+      - name: GitHub-Release vorbereiten (Tag frei, Version höher?)
+        id: release
+        if: env.NUR_BAUEN != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.msi.outputs.version }}
+        run: |
+          $tag = "v$env:VERSION"
+          $api = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY"
+          $kopf = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+
+          $null = Invoke-RestMethod "$api/git/ref/tags/$tag" -Headers $kopf -SkipHttpErrorCheck -StatusCodeVariable status
+          if ($status -eq 200) { Write-Output "::error::Den Tag $tag gibt es schon. Er wird nicht überschrieben - Lauf abgebrochen (nichts ins Portal)."; exit 1 }
+          if ($status -ne 404) { Write-Output "::error::Tag $tag ließ sich nicht prüfen (HTTP $status)."; exit 1 }
+
+          $neuestes = Invoke-RestMethod "$api/releases/latest" -Headers $kopf -SkipHttpErrorCheck -StatusCodeVariable status
+          if ($status -eq 200) {
+            if ($neuestes.tag_name -match '^v(\d+\.\d+\.\d+)$') {
+              if ([version]$env:VERSION -le [version]$Matches[1]) {
+                Write-Output "::error::Version $env:VERSION ist nicht höher als das neueste Release $($neuestes.tag_name) (BUILD_OFFSET oder orca.version gesenkt?). Lauf abgebrochen (nichts ins Portal)."
+                exit 1
+              }
+            } else {
+              Write-Output "::warning::Das neueste Release heißt $($neuestes.tag_name) - nicht v<Major.Minor.Build>, Vergleich übersprungen."
+            }
+          } elseif ($status -ne 404) {
+            Write-Output "::error::Das neueste Release ließ sich nicht lesen (HTTP $status)."; exit 1
+          }
+          "release=true" | Out-File -Append -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          Write-Output "GitHub-Release $tag folgt nach dem Upload ins Portal, wenn auch Prüfen grün ist."
+
       - name: Ins Portal hochladen
-        if: ${{ !inputs.nur_bauen }}
+        if: env.NUR_BAUEN != 'true'
         shell: pwsh
         env:
           PORTAL_ZUGANG: ${{ secrets.PORTAL_ZUGANG }}
@@ -231,6 +312,62 @@ jobs:
           if ($env:FREIGEBEN -ne 'true') { $argumente += '--nicht-freigeben' }
           python @argumente
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # Tests für das Release (bei Pull Requests läuft „Prüfen“ ohnehin selbst).
+  pruefen:
+    name: Prüfen
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/pruefen.yml
+
+  release:
+    name: GitHub-Release
+    needs: [bauen, pruefen]
+    # Ohne always() nur, wenn bauen und pruefen beide erfolgreich waren.
+    if: needs.bauen.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: MSI aus diesem Lauf holen
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.bauen.outputs.msi_name }}
+          path: artefakt
+
+      - name: Release v${{ needs.bauen.outputs.version }} anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.bauen.outputs.version }}
+          SHA256: ${{ needs.bauen.outputs.sha256 }}
+          # Dasselbe „Was ist neu?“ wie im Portal, vor den automatisch erzeugten Notizen.
+          NOTIZEN: ${{ inputs.notizen || github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          asset="EulenSlicer-$VERSION.msi"
+
+          shopt -s nullglob
+          msis=(artefakt/*.msi)
+          if [ "${#msis[@]}" -ne 1 ]; then echo "::error::Im Artefakt liegen ${#msis[@]} MSI-Dateien statt einer."; exit 1; fi
+          cp "${msis[0]}" "$asset"
+          ist=$(sha256sum "$asset" | cut -d' ' -f1)
+          if [ "$ist" != "$SHA256" ]; then echo "::error::SHA-256 der MSI ($ist) passt nicht zu der im Portal ($SHA256)."; exit 1; fi
+
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")
+          if [ "$status" = "200" ]; then echo "::error::Den Tag $tag gibt es schon – er wird nicht überschrieben."; exit 1; fi
+          if [ "$status" != "404" ]; then echo "::error::Tag $tag ließ sich nicht prüfen (HTTP $status)."; exit 1; fi
+
+          printf '%s\n' "$NOTIZEN" > notizen.md
+          gh release create "$tag" "$asset" -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "EulenSlicer $VERSION" \
+            --notes-file notizen.md \
+            --generate-notes \
+            --latest
+          echo "Release $tag mit $asset: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$tag"
 
   melden:
     name: Rückmeldung an den Pull Request
