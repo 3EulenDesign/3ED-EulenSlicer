@@ -69,6 +69,7 @@ skripte/
   bilder.py                  erzeugt bilder/ (Eulen aus dem Theme, Schriftzug Poppins Bold als Pfad; nur bei Änderungen)
   hochladen.py               signiert die MSI und lädt sie in Stücken ins Portal
   msi.ps1                    baut die MSI aus dem Programmordner (WiX 5, absolute Pfade, Größenprüfung)
+  msi-pruefen.ps1            prüft die fertige MSI: Version mit drei Stellen, UpgradeCode, pro Maschine, Major Upgrade
   abhaengigkeiten.ps1        hebt die Abhängigkeiten von OrcaSlicer auf dem eigenen Runner auf und holt sie wieder
   runner-pruefen.ps1         prüft, ob der eigene Runner alles hat (erster Schritt jedes Windows-Laufs dort)
   runner-einrichten.ps1      richtet die VM des Runners ein (winget, einmal als Administrator)
@@ -77,7 +78,7 @@ installer/Lizenz.rtf         Lizenzhinweis im ersten Fenster der Installation
 tests/kern_test.cpp          Test für den Kern des Update-Kanals (läuft in „Prüfen“)
 tests/portal_test.cpp        Test für den Kern der Portal-Verbindung (läuft in „Prüfen“)
 .github/workflows/
-  bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal (eigener Runner)
+  bauen.yml                  „EulenSlicer bauen“: Windows-Build, MSI, Upload ins Portal und GitHub-Release (eigener Runner)
   msi.yml                    „MSI neu packen“: nur die MSI aus dem Programmordner eines Laufs (Minuten statt Stunden)
   kompilieren.yml            „Kompilieren“: übersetzt nur die geänderten Dateien (etwa 6 Minuten), bei jedem Push auf quellen/
   pruefen.yml                „Prüfen“: Kern-Test, Skripte, passen die Stellen zu OrcaSlicer?
@@ -186,8 +187,8 @@ Browser. Die Liste der Befehle (`eulen_info`, `eulen_konto_setzen`, `eulen_sende
    `github`, dann baut GitHub selbst).
 5. *Actions → EulenSlicer bauen → Run workflow.* Der erste Lauf baut die Abhängigkeiten von
    OrcaSlicer und hebt sie auf. Auf dem eigenen Runner dauert das knapp eine Stunde, danach
-   gut eine halbe (bei GitHub gut 2,5 Stunden, danach etwa 1¼). Die MSI liegt danach im Portal (*Versionen*) und 14 Tage unter
-   *Artifacts* des Laufs.
+   gut eine halbe (bei GitHub gut 2,5 Stunden, danach etwa 1¼). Die MSI liegt danach im Portal (*Versionen*),
+   als GitHub-Release und 14 Tage unter *Artifacts* des Laufs.
 
 Den Schlüssel nur einmal am Anfang erzeugen: Jeder EulenSlicer kennt den öffentlichen
 Schlüssel, mit dem er gebaut wurde. Ein neuer Schlüssel heißt, dass alle Rechner die
@@ -234,7 +235,9 @@ auch an `SIGNATUR_SCHLUESSEL`, mit dem jedes Update signiert wird. Deshalb:
 - Auf der VM nichts anderes und keine anderen Zugangsdaten; der Runner nur für dieses Repo.
 
 Die eigenen Workflows starten auf der VM nie durch einen Pull Request: „Kompilieren“ bei
-Pushes ins Repo, die anderen von Hand, bei Tags oder über „OrcaSlicer-Update“.
+Pushes ins Repo, „EulenSlicer bauen“ bei Pushes auf `main`, von Hand, bei Tags oder über
+„OrcaSlicer-Update“. Pull Requests baut „EulenSlicer bauen“ immer bei GitHub (`windows-latest`,
+ohne Portal und Release) – auch mit `EULEN_RUNNER` leer.
 
 **Abhängigkeiten auf dem Runner:** Statt im Zwischenspeicher von GitHub liegen sie auf der
 VM unter `C:\a\_work\_tool\eulen\d-<Hash>` (Werkzeug-Ordner des Runners; ein anderer Ort
@@ -249,14 +252,15 @@ für alle drei Windows-Workflows und kostet bei einem öffentlichen Repo nichts.
 
 ## Bauen
 
-| Auslöser | Ergebnis im Portal |
-|---|---|
-| *Run workflow* mit „freigeben“ (Standard) | freigegeben – die Slicer holen sie beim nächsten Start |
-| *Run workflow* ohne „freigeben“ | zurückgezogen – erst testen, dann im Portal freigeben |
-| Tag `v…` pushen (z. B. `v2.4.2-3`) | freigegeben |
-| Push auf `main`, der `orca.version` ändert (neue OrcaSlicer-Version) | zurückgezogen |
-| „OrcaSlicer-Update“ nach dem automatischen Zusammenführen | zurückgezogen, Ergebnis als Kommentar im Pull Request |
-| *Run workflow* mit „Nur bauen“ | nichts – die MSI liegt nur unter *Artifacts* (Test, geht auch ohne Secrets) |
+| Auslöser | Ergebnis im Portal | GitHub-Release |
+|---|---|---|
+| *Run workflow* mit „freigeben“ (Standard) | freigegeben – die Slicer holen sie beim nächsten Start | ja |
+| *Run workflow* ohne „freigeben“ | zurückgezogen – erst testen, dann im Portal freigeben | ja |
+| Tag `v…` pushen (z. B. `v2.4.2-3`) | freigegeben | ja (Tag `v<MSI-Version>`, nicht der gepushte) |
+| Push auf `main` (nicht, wenn sich nur `README.md`, `LICENSE.txt`, `.gitignore`, `tests/`, `bilder/vorschau/` oder andere Workflows ändern) | zurückgezogen | ja |
+| „OrcaSlicer-Update“ nach dem automatischen Zusammenführen | zurückgezogen, Ergebnis als Kommentar im Pull Request | ja |
+| *Run workflow* mit „Nur bauen“ | nichts – die MSI liegt nur unter *Artifacts* (Test, geht auch ohne Secrets) | nein |
+| Pull Request auf `main` | nichts – nur bauen, MSI unter *Artifacts*; läuft bei GitHub, nie auf dem eigenen Runner | nein |
 
 „Was ist neu?“ kommt aus dem Feld beim Starten von Hand, sonst aus der Commit-Nachricht.
 
@@ -268,11 +272,23 @@ die MSI daraus neu, ohne den Slicer noch einmal zu übersetzen.
 (+ `BUILD_OFFSET`). Die MSI hat die Version `2.4.<build>` – der Build zählt immer weiter,
 so ersetzt jede neue MSI die alte, auch über einen Versionssprung von OrcaSlicer hinweg.
 
+**GitHub-Release** (für das HPG-Softwarecenter, `hpgsc sync` liest das neueste Release):
+Jede MSI, die ins Portal geht, kommt auch als Release `v<MSI-Version>` (z. B. `v2.4.23`), als
+*Latest*, mit genau einem Asset `EulenSlicer-<MSI-Version>.msi` – dieselbe Datei wie im Portal
+(gleicher SHA-256), nur anders benannt. Quelle im Softwarecenter: Repo `3EulenDesign/3ED-EulenSlicer`,
+Asset `EulenSlicer-*.msi`. Das Release kommt nur, wenn Bauen und „Prüfen“ grün sind;
+`skripte/msi-pruefen.ps1` prüft vorher die MSI selbst. Gibt es den Tag schon oder ist die
+Version nicht höher als das neueste Release, bricht der Lauf ab, bevor etwas ins Portal geht –
+ein Tag wird nie überschrieben. Notizen: „Was ist neu?“, darunter die von GitHub erzeugten.
+Zurückgezogen gilt nur im Portal: Das GitHub-Release ist sofort *Latest*.
+„MSI neu packen“ legt kein Release an (es behält die Build-Nummer, den Tag gibt es also schon).
+
 ## Auf den Rechnern
 
 - **Installieren:** MSI aus dem Portal (*Interner Bereich → EulenSlicer*) doppelklicken.
   Installiert für alle Konten nach `C:\Program Files\EulenSlicer` (einmal Administratorrechte).
-  Ohne Nachfrage, z. B. per GPO oder Intune: `msiexec /i EulenSlicer-2.4.2-b17.msi /qn`;
+  Ohne Nachfrage, z. B. per GPO, Intune oder HPG-Softwarecenter (aus dem GitHub-Release):
+  `msiexec /i EulenSlicer-2.4.17.msi /qn`;
   ohne Desktop-Verknüpfung: `DESKTOP=0`.
 - **SmartScreen:** Die MSI hat keine gekaufte Code-Signatur. Beim ersten Mal „Weitere
   Informationen“ → „Trotzdem ausführen“.

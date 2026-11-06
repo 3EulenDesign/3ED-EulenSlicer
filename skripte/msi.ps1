@@ -10,7 +10,8 @@
 
   Alle Pfade gehen absolut an WiX – WiX sucht relative Pfade vom Ordner der .wxs aus
   (mit einem relativen Pfad entstand eine MSI ohne Dateien).
-  In GitHub Actions stehen Pfad und Name der MSI danach in $env:GITHUB_ENV (MSI, MSI_NAME).
+  In GitHub Actions stehen Pfad, Name und Version der MSI danach in $env:GITHUB_ENV
+  (MSI, MSI_NAME, MSI_VERSION).
 #>
 param(
     [Parameter(Mandatory = $true)] [string] $Quelle,
@@ -70,4 +71,5 @@ if ($groesse -lt 30MB) {
 if ($env:GITHUB_ENV) {
     "MSI=$msi" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
     "MSI_NAME=$(Split-Path -Leaf $msi)" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+    "MSI_VERSION=$msiVersion" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
 }
